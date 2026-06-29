@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0f172a;
+  --color-card: #1e293b;
+  --color-border: #334155;
+  --color-primary: var(--color-primary);
+  --font-display: "sporty-pro",sans-serif;
+  --font-sans: "Oswald", sans-serif;
+}
+:root {
+  --color-primary: #22c55e; 
+}
+
+@layer base {
+  body {
+    @apply bg-background text-white antialiased;
+  }
+  
+ h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-style: normal;
+  text-transform: uppercase;
+}
+}
