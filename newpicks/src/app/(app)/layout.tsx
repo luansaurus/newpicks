@@ -3,177 +3,189 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
-import { useTheme } from '@/context/ThemeContext';
-import { Loader2, LogOut, Trophy, Home, CalendarDays, CheckCircle2, Globe, User as UserIcon } from 'lucide-react';
-import Link from 'next/link';
+import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { CompetitionProvider } from '@/context/CompetitionContext';
+import { Loader2, Trophy, Home, User as UserIcon, LogOut, ChartNoAxesCombinedIcon } from 'lucide-react';
+import Link from 'next/link';
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+function LayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { applyTheme } = useTheme();
+  const themeContext = useTheme(); 
   
   const [loading, setLoading] = useState(true);
-  const [userProfile, setUserProfile] = useState<any>(null);
-
-  const navItems = [
-    { name: 'Início', path: '/dashboard', icon: Home },
-    { name: 'Palpites', path: '/palpites', icon: CalendarDays },
-    { name: 'Resultados', path: '/resultados', icon: CheckCircle2 },
-    { name: 'Ranking', path: '/ranking', icon: Globe },
-  ];
+  const [userProfile, setUserProfile] = useState<{ 
+    username: string; 
+    team_name?: string;
+    team_logo?: string;
+    team_color?: string; 
+  } | null>(null);
 
   useEffect(() => {
-    const checkUserAndTheme = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        router.push('/login');
-        return;
-      }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select(`
-          username,
-          total_points,
-          teams (id, name, logo_url, main_color)
-        `)
-        .eq('id', session.user.id)
-        .single();
-
-      if (profile) {
-        setUserProfile(profile);
-        const userTeam: any = Array.isArray(profile.teams) ? profile.teams[0] : profile.teams;
-        if (userTeam?.main_color) {
-          applyTheme(userTeam.main_color);
+    const checkSessionAndFetchProfile = async () => {
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !session) {
+          router.push('/login');
+          return;
         }
+
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('username, teams(name, logo_url, main_color)') 
+          .eq('id', session.user.id)
+          .single();
+
+        if (profileError) throw profileError;
+
+        if (profileData) {
+          const teamData = profileData.teams as any;
+          setUserProfile({
+            username: profileData.username,
+            team_name: teamData?.name,
+            team_logo: teamData?.logo_url,
+            team_color: teamData?.main_color 
+          });
+        }
+
+        setLoading(false);
+      } catch (err) {
+        console.error('Erro ao carregar perfil:', err);
+        router.push('/login');
       }
-      setLoading(false);
     };
 
-    checkUserAndTheme();
-  }, [router, applyTheme]);
+    checkSessionAndFetchProfile();
+  }, [router]);
 
-  const handleLogout = async () => {
+  const handleSignOut = async () => {
     await supabase.auth.signOut();
-    localStorage.removeItem('team_primary_color');
     router.push('/login');
   };
 
+  // --- MÁGICA DO CONTRASTE (Fica dentro do componente para evitar o erro do TypeScript) ---
+  const getSafeColor = (hex: string | undefined) => {
+    if (!hex) return '#e11d48'; // Fallback padrão (Vermelho)
+    
+    // Limpa o hex caso venha com ou sem a hashtag
+    const cleanHex = hex.charAt(0) === '#' ? hex.substring(1) : hex;
+    
+    // Evita quebra se o hex no banco estiver incompleto
+    if (cleanHex.length !== 6) return hex;
+
+    const r = parseInt(cleanHex.slice(0, 2), 16);
+    const g = parseInt(cleanHex.slice(2, 4), 16);
+    const b = parseInt(cleanHex.slice(4, 6), 16);
+    
+    // Fórmula padrão de luminância
+    const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    // Limite 40: Pega pretos (0), cinzas escuros e azul marinho, 
+    // mas poupa os vermelhos puros (54), verdes e azuis mais abertos.
+    return luma < 40 ? '#f8fafc' : hex; 
+  };
+
+  // Define a cor pura (Banco > Contexto > Fallback) e passa pelo filtro de segurança
+  const rawColor = userProfile?.team_color || themeContext?.themeColor || '#e11d48';
+  const themeColor = getSafeColor(rawColor);
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="animate-spin text-primary" size={40} />
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
+        <Loader2 className="animate-spin text-primary" size={36} />
       </div>
     );
   }
 
   return (
-    <CompetitionProvider>
     <div className="min-h-screen bg-background text-white flex flex-col">
-      {/* HEADER TOPO */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-md sticky top-0 z-50">
+      {/* HEADER ESCURO PADRÃO DO APP */}
+      <header className="border-b border-border/20 sticky top-0 z-50 backdrop-blur-md shadow-md bg-slate-950/90">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          
-          {/* Logo & Marca - Agora é um Link para a Home/Dashboard */}
-          <Link 
-            href="/dashboard" 
-            className="flex items-center gap-3 cursor-pointer group select-none"
-          >
-            {userProfile?.teams?.logo_url && (
-              <img 
-                src={userProfile.teams.logo_url} 
-                alt="Logo Time" 
-                className="h-8 w-8 object-contain drop-shadow-md group-hover:scale-105 transition-transform duration-200" 
-              />
-            )}
-            <span className="font-display font-bold text-xl uppercase tracking-wider hidden sm:block">
-              Arena<span className="text-primary transition-colors group-hover:opacity-80">Picks</span>
-            </span>
-          </Link>
-
-          {/* Navegação Desktop */}
-          <nav className="hidden md:flex items-center gap-1">
-            {navItems.map((item) => {
-              const isActive = pathname === item.path;
-              const Icon = item.icon;
-              return (
-                <Link 
-                  key={item.path} 
-                  href={item.path}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-                    isActive 
-                      ? 'bg-primary/10 text-primary' 
-                      : 'text-slate-400 hover:bg-card hover:text-white'
-                  }`}
-                >
-                  <Icon size={18} className={isActive ? 'text-primary' : ''} />
-                  {item.name}
-                </Link>
-              );
-            })}
-          </nav>
-
-          {/* Perfil & Pontuação */}
-          <div className="flex items-center gap-3 sm:gap-6">
-            
-            {/* Bloco de Pontos */}
-            <div className="flex items-center gap-1.5 bg-background border border-border px-3 py-1.5 rounded-xl text-sm font-bold select-none">
-              <Trophy size={16} className="text-primary" />
-              <span>{userProfile?.total_points || 0}</span>
-            </div>
-            
-            {/* Área do Profile - Redireciona para a tela de configurações do perfil */}
-            <Link 
-              href="/profile" 
-              className="flex text-sm text-slate-300 font-medium items-center gap-1.5 hover:text-primary transition-colors cursor-pointer group"
-            >
-              <UserIcon size={16} className="group-hover:scale-110 transition-transform" />
-              <span className="hidden sm:inline">@{userProfile?.username}</span>
+          <div className="flex items-center gap-6">
+            <Link href="/dashboard" className="flex items-center gap-2 font-display font-bold text-xl uppercase tracking-wider">
+              Arena<span style={{ color: themeColor }}>Picks</span>
             </Link>
+            
+            <nav className="hidden md:flex items-center gap-1 text-sm font-medium">
+              <Link href="/dashboard" className={`px-3 py-2 rounded-lg transition-colors ${pathname === '/dashboard' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
+                Painel
+              </Link>
+              <Link href="/profile" className={`px-3 py-2 rounded-lg transition-colors ${pathname === '/profile' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
+                Meu Perfil
+              </Link>
+              <Link href="/ranking" className={`px-3 py-2 rounded-lg transition-colors ${pathname === '/ranking' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
+                Ranking Geral
+              </Link>
+            </nav>
+          </div>
 
-            {/* Logout */}
-            <button 
-              onClick={handleLogout} 
-              className="text-slate-400 hover:text-red-400 transition-colors p-2 cursor-pointer"
-              title="Sair da conta"
+          <div className="flex items-center gap-4">
+            {/* INFORMAÇÕES DO USUÁRIO */}
+            <div className="hidden sm:flex items-center gap-3 text-right">
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-slate-200">@{userProfile?.username}</span>
+                <span className="text-[10px] font-medium" style={{ color: themeColor }}>
+                  {userProfile?.team_name || 'Sem Time Favorito'}
+                </span>
+              </div>
+              {userProfile?.team_logo && (
+                <img src={userProfile.team_logo} alt="Escudo" className="w-9 h-9 object-contain drop-shadow-lg" />
+              )}
+            </div>
+
+            <div 
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-bold border shadow-sm bg-background/40"
+              style={{ borderColor: themeColor, color: themeColor }}
             >
-              <LogOut size={20} />
+              <Trophy size={15} />
+              <span className="font-display tracking-tight">Bolão ativo</span>
+            </div>
+
+            <button 
+              onClick={handleSignOut}
+              className="hidden md:flex p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              <LogOut size={18} />
             </button>
           </div>
         </div>
       </header>
 
-      {/* ÁREA DE CONTEÚDO PRINCIPAL */}
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 pb-24 md:pb-6 relative z-10">
         {children}
       </main>
 
-      {/* BOTTOM NAVIGATION BAR (Mobile) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border z-50 pb-safe">
-        <div className="flex items-center justify-around p-2">
-          {navItems.map((item) => {
-            const isActive = pathname === item.path;
-            const Icon = item.icon;
-            return (
-              <Link 
-                key={item.path} 
-                href={item.path}
-                className={`flex flex-col items-center justify-center w-full py-2 gap-1 rounded-xl transition-all ${
-                  isActive ? 'text-primary' : 'text-slate-500'
-                }`}
-              >
-                <div className={`p-1 rounded-lg ${isActive ? 'bg-primary/20' : ''}`}>
-                  <Icon size={22} className={isActive ? 'text-primary' : ''} />
-                </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider">{item.name}</span>
-              </Link>
-            );
-          })}
-        </div>
+      {/* NAV MOBILE ESCURA PADRÃO */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t border-border/20 z-50 h-16 flex items-center justify-around px-4 shadow-2xl backdrop-blur-md bg-slate-950/95">
+        <Link href="/dashboard" className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/dashboard' ? 'text-white' : 'text-slate-400'}`}>
+          <Home size={20} style={{ color: pathname === '/dashboard' ? themeColor : '' }} />
+          <span>Painel</span>
+        </Link>
+        <Link href="/profile" className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/profile' ? 'text-white' : 'text-slate-400'}`}>
+          <UserIcon size={20} style={{ color: pathname === '/profile' ? themeColor : '' }} />
+          <span>Perfil</span>
+        </Link>
+        <Link href="/ranking" className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/ranking' ? 'text-white' : 'text-slate-400'}`}>
+          <ChartNoAxesCombinedIcon size={20} style={{ color: pathname === '/ranking' ? themeColor : '' }} />
+          <span>Ranking</span>
+        </Link>
+        <button onClick={handleSignOut} className="flex flex-col items-center gap-1 text-[10px] font-bold uppercase text-slate-400">
+          <LogOut size={20} className="text-red-400/80" />
+          <span>Sair</span>
+        </button>
       </nav>
     </div>
-    </CompetitionProvider>
+  );
+}
+
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ThemeProvider>
+      <CompetitionProvider>
+        <LayoutContent>{children}</LayoutContent>
+      </CompetitionProvider>
+    </ThemeProvider>
   );
 }

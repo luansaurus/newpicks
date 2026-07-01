@@ -2,27 +2,45 @@
 
 import { createContext, useContext, useState, useEffect } from 'react';
 
-const CompetitionContext = createContext<any>(null);
+interface CompetitionContextType {
+  activeCompetition: any | null;
+  selectCompetition: (comp: any) => void;
+}
+
+const CompetitionContext = createContext<CompetitionContextType | null>(null);
 
 export function CompetitionProvider({ children }: { children: React.ReactNode }) {
-  const [activeCompetitionId, setActiveCompetitionId] = useState<number | null>(null);
+  const [activeCompetition, setActiveCompetition] = useState<any | null>(null);
 
-  // Opcional: Persistir a competição selecionada no localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('active_competition_id');
-    if (saved) setActiveCompetitionId(parseInt(saved));
+    // Lê o objeto completo do cache quando o app inicia
+    const saved = localStorage.getItem('active_competition_obj');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          setActiveCompetition(parsed);
+        }
+      } catch (e) {
+        console.error('Erro ao ler cache da competição', e);
+      }
+    }
   }, []);
 
-  const selectCompetition = (id: number) => {
-    setActiveCompetitionId(id);
-    localStorage.setItem('active_competition_id', id.toString());
+  const selectCompetition = (comp: any) => {
+    setActiveCompetition(comp); // Atualiza o estado para o app inteiro renderizar
+    localStorage.setItem('active_competition_obj', JSON.stringify(comp)); // Salva no cache
   };
 
   return (
-    <CompetitionContext.Provider value={{ activeCompetitionId, selectCompetition }}>
+    <CompetitionContext.Provider value={{ activeCompetition, selectCompetition }}>
       {children}
     </CompetitionContext.Provider>
   );
 }
 
-export const useCompetition = () => useContext(CompetitionContext);
+export const useCompetition = () => {
+  const context = useContext(CompetitionContext);
+  if (!context) throw new Error('useCompetition deve ser usado dentro de um CompetitionProvider');
+  return context;
+};
