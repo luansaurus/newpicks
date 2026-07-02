@@ -16,14 +16,15 @@ export interface MatchCardProps {
   status: MatchStatus;
   homeScore?: number;
   awayScore?: number;
-  homePenalties?: number; // Novo: Pênaltis do time da casa
-  awayPenalties?: number; // Novo: Pênaltis do time visitante
+  homePenalties?: number;
+  awayPenalties?: number;
   onClick?: () => void;
   guessHome?: string;
   guessAway?: string;
   onGuessChange?: (side: 'home' | 'away', value: string) => void;
   userGuess?: { home_guess: number; away_guess: number } | null;
   points?: number;
+  pointColor?: 'GREEN' | 'BLUE' | 'YELLOW' | 'RED'; // Nova propriedade para o Motor de Ligas
 }
 
 export function MatchCard({
@@ -40,7 +41,8 @@ export function MatchCard({
   guessAway,
   onGuessChange,
   userGuess,
-  points
+  points,
+  pointColor = 'RED' // Fallback padrão
 }: MatchCardProps) {
   
   const isLocked = new Date(matchDate).getTime() - new Date().getTime() < 15 * 60 * 1000;
@@ -78,35 +80,44 @@ export function MatchCard({
 
   const fallbackLogo = "https://ui-avatars.com/api/?name=TBA&background=1e293b&color=cbd5e1&bold=true";
 
+  const getSafeLogo = (team: Team | null) => {
+    if (!team || !team.logo_url || team.logo_url.trim() === '') return fallbackLogo;
+    return team.logo_url;
+  };
+
+  const getSafeCode = (team: Team | null) => {
+    if (!team) return 'TBA';
+    if (team.short_code && team.short_code.trim() !== '') return team.short_code;
+    if (team.name && team.name.trim() !== '') return team.name.substring(0, 3).toUpperCase();
+    return 'TBA';
+  };
+
   const displayHome = guessHome ?? (userGuess?.home_guess?.toString() || '');
   const displayAway = guessAway ?? (userGuess?.away_guess?.toString() || '');
 
-  // --- LÓGICA DE CORES DA PONTUAÇÃO (BORDA E BACKGROUND) ---
+  // --- LÓGICA DE CORES DO MOTOR DE LIGAS ---
   let cardBorderColor = 'border-2 border-border';
   let cardBgColor = 'bg-card';
+  let pointsBadgeColor = 'text-slate-400 bg-slate-800';
 
   if (status === 'FINISHED' && points !== undefined) {
-    if (points >= 5) {
+    if (pointColor === 'GREEN') {
       cardBorderColor = 'border-2 border-green-500/60 shadow-[0_0_15px_rgba(34,197,94,0.15)]';
       cardBgColor = 'bg-green-500/10';
-    } else if (points >= 3) {
+      pointsBadgeColor = 'text-green-400 bg-green-500/20 border-green-500/30';
+    } else if (pointColor === 'BLUE') {
       cardBorderColor = 'border-2 border-blue-500/60 shadow-[0_0_15px_rgba(59,130,246,0.15)]';
       cardBgColor = 'bg-blue-500/10';
-    } else if (points >= 2) {
+      pointsBadgeColor = 'text-blue-400 bg-blue-500/20 border-blue-500/30';
+    } else if (pointColor === 'YELLOW') {
       cardBorderColor = 'border-2 border-yellow-500/60 shadow-[0_0_15px_rgba(234,179,8,0.15)]';
       cardBgColor = 'bg-yellow-500/10';
+      pointsBadgeColor = 'text-yellow-400 bg-yellow-500/20 border-yellow-500/30';
     } else {
       cardBorderColor = 'border-2 border-red-500/60 shadow-[0_0_15px_rgba(239,68,68,0.15)]';
       cardBgColor = 'bg-red-500/10';
+      pointsBadgeColor = 'text-red-400 bg-red-500/20 border-red-500/30';
     }
-  }
-
-  let pointsBadgeColor = 'text-slate-400 bg-slate-800';
-  if (points !== undefined) {
-    if (points >= 5) pointsBadgeColor = 'text-green-400 bg-green-500/20 border-green-500/30';
-    else if (points >= 3) pointsBadgeColor = 'text-blue-400 bg-blue-500/20 border-blue-500/30';
-    else if (points >= 2) pointsBadgeColor = 'text-yellow-400 bg-yellow-500/20 border-yellow-500/30';
-    else pointsBadgeColor = 'text-red-400 bg-red-500/20 border-red-500/30';
   }
 
   // --- LÓGICA INTELIGENTE PARA APAGAR O TIME PERDEDOR (INCLUINDO PÊNALTIS) ---
@@ -119,7 +130,6 @@ export function MatchCard({
     } else if (awayScore < homeScore) {
       isAwayLoser = true;
     } else if (homeScore === awayScore && homePenalties !== undefined && awayPenalties !== undefined) {
-      // Jogo empatou, decide nos pênaltis!
       if (homePenalties < awayPenalties) {
         isHomeLoser = true;
       } else if (awayPenalties < homePenalties) {
@@ -151,13 +161,14 @@ export function MatchCard({
         <div className={`flex flex-col items-center flex-1 transition-all duration-500 ${homeOpacityClass}`}>
           <div className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center p-2">
             <img 
-              src={homeTeam?.logo_url || fallbackLogo} 
+              src={getSafeLogo(homeTeam)} 
               alt={homeTeam?.name || 'A Definir'} 
               className="max-w-full max-h-full object-contain drop-shadow-lg"
+              onError={(e) => { e.currentTarget.src = fallbackLogo; }}
             />
           </div>
           <span className={`mt-2 font-bold text-sm sm:text-base uppercase tracking-wide text-center transition-colors ${homeTextClass}`}>
-            {homeTeam?.short_code || 'TBA'}
+            {getSafeCode(homeTeam)}
           </span>
         </div>
 
@@ -172,7 +183,6 @@ export function MatchCard({
                 <span className="text-4xl sm:text-5xl font-display font-bold text-white drop-shadow-md">{awayScore ?? 0}</span>
               </div>
 
-              {/* PLACAR DE PÊNALTIS (Só aparece se houver dados de pênaltis e for empate) */}
               {homePenalties !== undefined && awayPenalties !== undefined && homeScore === awayScore && (
                 <div className="text-[10px] sm:text-xs font-bold text-slate-300 bg-slate-900/50 px-2 py-0.5 rounded border border-slate-700/50 mb-1">
                   ({homePenalties}) Pênaltis ({awayPenalties})
@@ -199,18 +209,14 @@ export function MatchCard({
             <div className="flex flex-col items-center gap-2">
               <div className="flex items-center gap-2 sm:gap-3">
                 <input 
-                  type="number" 
-                  min="0"
-                  value={displayHome}
+                  type="number" min="0" value={displayHome}
                   onChange={(e) => onGuessChange && onGuessChange('home', e.target.value)}
                   className="w-16 sm:w-15 h-15 sm:h-20 bg-background/50 border border-border rounded-xl text-center text-3xl sm:text-4xl font-display font-bold text-white focus:ring-2 focus:ring-primary focus:outline-none transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="-"
                 />
                 <span className="text-xl sm:text-2xl font-display text-slate-600 font-bold">:</span>
                 <input 
-                  type="number" 
-                  min="0"
-                  value={displayAway}
+                  type="number" min="0" value={displayAway}
                   onChange={(e) => onGuessChange && onGuessChange('away', e.target.value)}
                   className="w-16 sm:w-15 h-15 sm:h-20 bg-background/50 border border-border rounded-xl text-center text-3xl sm:text-4xl font-display font-bold text-white focus:ring-2 focus:ring-primary focus:outline-none transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="-"
@@ -243,13 +249,14 @@ export function MatchCard({
         <div className={`flex flex-col items-center flex-1 transition-all duration-500 ${awayOpacityClass}`}>
           <div className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center p-2">
             <img 
-              src={awayTeam?.logo_url || fallbackLogo} 
+              src={getSafeLogo(awayTeam)} 
               alt={awayTeam?.name || 'A Definir'} 
               className="max-w-full max-h-full object-contain drop-shadow-lg"
+              onError={(e) => { e.currentTarget.src = fallbackLogo; }}
             />
           </div>
           <span className={`mt-2 font-bold text-sm sm:text-base uppercase tracking-wide text-center transition-colors ${awayTextClass}`}>
-            {awayTeam?.short_code || 'TBA'}
+            {getSafeCode(awayTeam)}
           </span>
         </div>
         

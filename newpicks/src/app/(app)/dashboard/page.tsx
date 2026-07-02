@@ -3,25 +3,19 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { MatchCard, MatchStatus } from '@/components/shared/MatchCard';
-import { CompetitionSelector } from '@/components/shared/CompetitionSelector';
 import { useCompetition } from '@/context/CompetitionContext';
+import { useLeague } from '@/context/LeagueContext';
 import { useTheme } from '@/context/ThemeContext';
-import { Calendar, TrendingUp, Loader2, Save, ChevronDown, ChevronUp, Layers, Flame, Minus } from 'lucide-react';
+import { UserPerformance, UserStats } from '@/components/shared/UserPerformance';
+import { Calendar, Loader2, Save, ChevronDown, ChevronUp, Flame, Trophy, Medal } from 'lucide-react';
+import { calculateGuessPoints, GLOBAL_LEAGUE_RULES, isPlayoffPhase } from '@/utils/leagueEngine';
 
 interface DayGroup {
   dateKey: string;
   dateLabel: string;
   rawDate: Date;
   matches: any[];
-}
-
-interface UserStats {
-  totalPoints: number;
-  todayPoints: number;
-  lastDayPoints: number;
-  exactScores: number;
-  rank: number;
-  movement: number; 
+  phases: Set<string>;
 }
 
 const isColorDark = (hex: string) => {
@@ -33,13 +27,82 @@ const isColorDark = (hex: string) => {
   return luma < 128; 
 };
 
+const parseDateBR = (dateStr: string) => {
+  const [d, m, y] = dateStr.split('/');
+  return new Date(Number(y), Number(m) - 1, Number(d)).getTime();
+};
+
+const phaseNamesBR: Record<string, string> = {
+  'round_of_32': '16 avos de Final',
+  'round_of_16': 'Oitavas de Final',
+  'quarter_final': 'Quartas de Final',
+  'semi_final': 'Semifinal',
+  'third_place': 'Disputa de 3º Lugar',
+  'final': 'Final',
+  'groups': 'Fase de Grupos'
+};
+
+const getPhaseTheme = (phases: Set<string>) => {
+  if (!phases || phases.size === 0) return 'group';
+  
+  if (phases.has('final')) return 'final';
+  if (phases.has('third_place')) return 'third_place';
+  if (phases.has('semi_final')) return 'semi';
+  if (phases.has('quarter_final')) return 'quarter';
+  if (phases.has('round_of_16')) return 'round16';
+  if (phases.has('round_of_32')) return 'round32';
+  
+  return 'group'; 
+};
+
+const phaseConfig = {
+  final: { 
+    border: 'border-yellow-500/80', bg: 'bg-yellow-500/10', text: 'text-yellow-500', 
+    active: 'shadow-[0_0_15px_rgba(234,179,8,0.3)] scale-105 bg-yellow-500/20',
+    icon: <Trophy size={14} className="text-yellow-500 drop-shadow-md" />,
+    badge: <div className="absolute -top-2 -right-2 bg-yellow-500 text-slate-900 rounded-full p-1 shadow-lg"><Trophy size={12}/></div>
+  },
+  third_place: { 
+    border: 'border-amber-700/60', bg: 'bg-amber-700/10', text: 'text-amber-600', 
+    active: 'shadow-[0_0_15px_rgba(180,83,9,0.3)] scale-105 bg-amber-700/20',
+    icon: <Medal size={14} className="text-amber-600 drop-shadow-md" />,
+    badge: <div className="absolute -top-2 -right-2 bg-amber-700 text-white rounded-full p-1 shadow-lg"><Medal size={12}/></div>
+  },
+  semi: { 
+    border: 'border-orange-500/60', bg: 'bg-orange-500/10', text: 'text-orange-500',
+    active: 'shadow-[0_0_15px_rgba(249,115,22,0.2)] scale-105 bg-orange-500/20',
+    icon: <Flame size={14} className="text-orange-500" />, badge: null
+  },
+  quarter: { 
+    border: 'border-purple-500/60', bg: 'bg-purple-500/10', text: 'text-purple-400',
+    active: 'shadow-[0_0_15px_rgba(168,85,247,0.2)] scale-105 bg-purple-500/20',
+    icon: <Medal size={14} className="text-purple-400" />, badge: null
+  },
+  round16: { 
+    border: 'border-blue-500/60', bg: 'bg-blue-500/10', text: 'text-blue-400',
+    active: 'shadow-[0_0_15px_rgba(59,130,246,0.2)] scale-105 bg-blue-500/20',
+    icon: <Medal size={14} className="text-blue-400" />, badge: null
+  },
+  round32: { 
+    border: 'border-cyan-500/60', bg: 'bg-cyan-500/10', text: 'text-cyan-400',
+    active: 'shadow-[0_0_15px_rgba(6,182,212,0.2)] scale-105 bg-cyan-500/20',
+    icon: <Medal size={14} className="text-cyan-400" />, badge: null
+  },
+  group: { 
+    border: 'border-border', bg: 'bg-background/50', text: 'text-slate-400',
+    active: 'border-primary bg-primary/20 scale-105 shadow-md',
+    icon: <Calendar size={14} />, badge: null
+  }
+};
+
 export default function DashboardPage() {
-  const { activeCompetition, selectCompetition } = useCompetition();
+  const { activeCompetition } = useCompetition();
+  const { activeLeague } = useLeague();
   const { themeColor } = useTheme(); 
   
   const todayStr = new Date().toLocaleDateString('pt-BR'); 
+  const todayMs = parseDateBR(todayStr);
   
-  const [competitions, setCompetitions] = useState<any[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
   const [guesses, setGuesses] = useState<Record<number, { home: string; away: string }>>({});
   
@@ -47,12 +110,10 @@ export default function DashboardPage() {
     totalPoints: 0, todayPoints: 0, lastDayPoints: 0, exactScores: 0, rank: 0, movement: 0
   });
   
-  const [isCompSelectorOpen, setIsCompSelectorOpen] = useState(false);
   const [isDateSelectorOpen, setIsDateSelectorOpen] = useState(false); 
   const [selectedDateKey, setSelectedDateKey] = useState<string>(todayStr);
   
-  const [loadingCompetitions, setLoadingCompetitions] = useState(true);
-  const [loadingMatches, setLoadingMatches] = useState(false);
+  const [loadingMatches, setLoadingMatches] = useState(true);
   const [savingGuesses, setSavingGuesses] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
@@ -60,73 +121,33 @@ export default function DashboardPage() {
   const selectedDateSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const fetchCompetitions = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) setCurrentUserId(session.user.id);
-
-        const { data: compData, error: compError } = await supabase
-          .from('competitions')
-          .select('id, name, competition_logo, slug, theme_primary, theme_secondary, is_active');
-
-        if (compError) throw compError;
-        if (compData) setCompetitions(compData);
-        
-      } catch (err) {
-        console.error('Erro ao inicializar competições:', err);
-      } finally {
-        setLoadingCompetitions(false);
-      }
+    const initUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) setCurrentUserId(session.user.id);
     };
-    fetchCompetitions();
+    initUser();
   }, []);
-
-  useEffect(() => {
-    if (competitions.length > 0 && (!activeCompetition || !activeCompetition.id)) {
-      try {
-        const saved = localStorage.getItem('active_competition_obj');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed && typeof parsed === 'object' && parsed.id) {
-            selectCompetition(parsed);
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn('Cache inválido encontrado. Limpando...');
-      }
-      localStorage.removeItem('active_competition_obj');
-      selectCompetition(competitions[0]);
-    }
-  }, [competitions, activeCompetition, selectCompetition]);
-
+// 1. CARREGAMENTO DOS JOGOS
   useEffect(() => {
     if (!activeCompetition?.id || !currentUserId) return;
 
     const fetchMatchesByCompetition = async () => {
       setLoadingMatches(true);
+      setMatches([]);
+      setUserStats({ totalPoints: 0, todayPoints: 0, lastDayPoints: 0, exactScores: 0, rank: 0, movement: 0 });
+
       try {
         const { data, error } = await supabase
           .from('matches')
-          .select(`
-            id,
-            match_time,
-            status,
-            home_score,
-            away_score,
-            home_penalty,
-            away_penalty,
-            competition_id,
-            home_team:teams!home_team_id (id, name, short_code, logo_url),
-            away_team:teams!away_team_id (id, name, short_code, logo_url),
-            guesses (user_id, home_guess, away_guess, points_awarded)
-          `)
+          .select(`id, match_time, status, home_score, away_score, home_penalty, away_penalty, phase, competition_id, home_team:teams!home_team_id (id, name, short_code, logo_url), away_team:teams!away_team_id (id, name, short_code, logo_url), guesses (user_id, home_guess, away_guess, points_awarded)`)
           .eq('competition_id', activeCompetition.id)
           .order('match_time', { ascending: true });
 
         if (error) throw error;
 
         if (data) {
+          const rulesToUse = activeLeague || GLOBAL_LEAGUE_RULES;
+
           const formattedMatches = data.map((match: any) => {
             let uiStatus: MatchStatus = 'SCHEDULED';
             if (match.status === 'FT') uiStatus = 'FINISHED';
@@ -134,21 +155,28 @@ export default function DashboardPage() {
 
             const userGuessData = match.guesses?.find((g: any) => g.user_id === currentUserId);
             
+            let matchPoints = undefined;
+            let matchColor: any = 'RED';
+
+            if (uiStatus === 'FINISHED' && userGuessData) {
+              if (activeLeague) {
+                const calc = calculateGuessPoints(match.home_score, match.away_score, userGuessData.home_guess, userGuessData.away_guess, rulesToUse, isPlayoffPhase(match.phase), match.home_penalty, match.away_penalty);
+                matchColor = calc.color;
+                matchPoints = calc.pts;
+              } else {
+                // LIGA GLOBAL (Pega do Banco + Multiplicador do Frontend)
+                matchPoints = userGuessData.points_awarded || 0;
+                if (isPlayoffPhase(match.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1) {
+                  matchPoints *= GLOBAL_LEAGUE_RULES.playoff_multiplier;
+                }
+              }
+            }
+            
             return {
-              id: match.id,
-              match_time: match.match_time,
-              status: uiStatus,
-              home_score: match.home_score ?? undefined,
-              away_score: match.away_score ?? undefined,
-              home_penalties: match.home_penalty ?? undefined,
-              away_penalties: match.away_penalty ?? undefined,
-              home_team: Array.isArray(match.home_team) ? match.home_team[0] : match.home_team,
-              away_team: Array.isArray(match.away_team) ? match.away_team[0] : match.away_team,
-              userGuess: userGuessData ? { home_guess: userGuessData.home_guess, away_guess: userGuessData.away_guess } : undefined,
-              points: uiStatus === 'FINISHED' && userGuessData ? (userGuessData.points_awarded || 0) : undefined // Pega direto da Trigger do BD
+              id: match.id, match_time: match.match_time, status: uiStatus, home_score: match.home_score ?? undefined, away_score: match.away_score ?? undefined, home_penalties: match.home_penalty ?? undefined, away_penalties: match.away_penalty ?? undefined, phase: match.phase || 'groups', home_team: Array.isArray(match.home_team) ? match.home_team[0] : match.home_team, away_team: Array.isArray(match.away_team) ? match.away_team[0] : match.away_team, userGuess: userGuessData ? { home_guess: userGuessData.home_guess, away_guess: userGuessData.away_guess } : undefined,
+              points: matchPoints, pointColor: matchColor
             };
           });
-
           setMatches(formattedMatches);
         }
       } catch (err) {
@@ -158,65 +186,84 @@ export default function DashboardPage() {
       }
     };
     fetchMatchesByCompetition();
-  }, [activeCompetition, currentUserId]); 
+  }, [activeCompetition, activeLeague, currentUserId]); 
 
+  // 2. CÁLCULO DE ESTATÍSTICAS (Isolado pela Liga para Ranking Correto)
   useEffect(() => {
     if (!activeCompetition?.id || !currentUserId || matches.length === 0) return;
 
     const calculateStats = async () => {
       try {
-        const { data: allGuessesData } = await supabase
-          .from('guesses')
-          .select('user_id, match_id, points_awarded, home_guess, away_guess')
-          .eq('competition_id', activeCompetition.id);
+        const matchIds = matches.map(m => m.id);
+        const { data: allGuessesData } = await supabase.from('guesses').select('user_id, match_id, points_awarded, home_guess, away_guess').in('match_id', matchIds);
 
         if (!allGuessesData) return;
 
-        const matchDates: Record<number, number> = {};
+        // FILTRO DE USUÁRIOS DA LIGA (Resolve o bug de aparecer em 3º quando está sozinho)
+        const validUsers = new Set<string>();
+        if (activeLeague) {
+          const { data: members } = await supabase.from('league_members').select('user_id').eq('league_id', activeLeague.id);
+          if (members) members.forEach(m => validUsers.add(m.user_id));
+        }
+
+        const rulesToUse = activeLeague || GLOBAL_LEAGUE_RULES;
+        const matchDateStrings: Record<number, string> = {};
+        const matchDateTimestamps: Record<number, number> = {};
         const matchScores: Record<number, any> = {};
         
         matches.forEach(m => {
-          const d = new Date(m.match_time);
-          d.setHours(0, 0, 0, 0);
-          matchDates[m.id] = d.getTime();
-          matchScores[m.id] = { h: m.home_score, a: m.away_score, status: m.status };
+          const dateStr = new Date(m.match_time).toLocaleDateString('pt-BR');
+          matchDateStrings[m.id] = dateStr; matchDateTimestamps[m.id] = parseDateBR(dateStr);
+          matchScores[m.id] = { h: m.home_score, a: m.away_score, hp: m.home_penalties, ap: m.away_penalties, status: m.status, phase: m.phase };
         });
 
-        const todayTime = new Date().setHours(0, 0, 0, 0);
-        const pastMatchTimes = Object.values(matchDates).filter(t => t < todayTime);
+        const pastMatchTimes = Object.values(matchDateTimestamps).filter(t => t < todayMs);
         const lastDayTime = pastMatchTimes.length > 0 ? Math.max(...pastMatchTimes) : null;
 
         const totalScores: Record<string, number> = {};
         const previousScores: Record<string, number> = {}; 
 
-        let myTotal = 0;
-        let myToday = 0;
-        let myLastDay = 0;
-        let myExactScores = 0;
+        // Inicia zerado para todo mundo da liga (Garante o tamanho correto do ranking)
+        if (activeLeague) {
+          validUsers.forEach(uid => { totalScores[uid] = 0; previousScores[uid] = 0; });
+        }
+
+        let myTotal = 0; let myToday = 0; let myLastDay = 0; let myExactScores = 0;
 
         allGuessesData.forEach(guess => {
-          const mTime = matchDates[guess.match_id];
-          const pts = guess.points_awarded || 0;
           const uid = guess.user_id;
+          
+          // Se for Liga Privada, ignora quem não é membro!
+          if (activeLeague && !validUsers.has(uid)) return;
+
+          const mDateStr = matchDateStrings[guess.match_id];
+          const mTimestamp = matchDateTimestamps[guess.match_id];
+          const mData = matchScores[guess.match_id];
+
+          let pts = 0;
+          let isExact = false;
+
+          if (mData && mData.status === 'FINISHED') {
+            if (activeLeague) {
+              pts = calculateGuessPoints(mData.h, mData.a, guess.home_guess, guess.away_guess, rulesToUse, isPlayoffPhase(mData.phase), mData.hp, mData.ap).pts;
+            } else {
+              pts = guess.points_awarded || 0;
+              if (isPlayoffPhase(mData.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1) pts *= GLOBAL_LEAGUE_RULES.playoff_multiplier;
+            }
+            isExact = (mData.h === guess.home_guess && mData.a === guess.away_guess);
+          }
 
           if (!totalScores[uid]) totalScores[uid] = 0;
           if (!previousScores[uid]) previousScores[uid] = 0;
 
           totalScores[uid] += pts;
-          
-          if (mTime < todayTime) {
-            previousScores[uid] += pts;
-          }
+          if (mTimestamp < todayMs) previousScores[uid] += pts;
 
           if (uid === currentUserId) {
             myTotal += pts;
-            if (mTime === todayTime) myToday += pts;
-            if (mTime === lastDayTime) myLastDay += pts;
-            
-            const mData = matchScores[guess.match_id];
-            if (mData && mData.status === 'FINISHED' && mData.h === guess.home_guess && mData.a === guess.away_guess) {
-              myExactScores++;
-            }
+            if (mDateStr === todayStr) myToday += pts;
+            if (mTimestamp === lastDayTime) myLastDay += pts;
+            if (isExact) myExactScores++;
           }
         });
 
@@ -229,24 +276,14 @@ export default function DashboardPage() {
         const currentRank = currentRankIndex !== -1 ? currentRankIndex + 1 : 0;
         const previousRank = previousRankIndex !== -1 ? previousRankIndex + 1 : currentRank;
 
-        const movement = previousRank === 0 ? 0 : (previousRank - currentRank);
-
         setUserStats({
-          totalPoints: myTotal,
-          todayPoints: myToday,
-          lastDayPoints: myLastDay,
-          exactScores: myExactScores,
-          rank: currentRank,
-          movement: movement
+          totalPoints: myTotal, todayPoints: myToday, lastDayPoints: myLastDay,
+          exactScores: myExactScores, rank: currentRank, movement: (previousRank === 0 ? 0 : (previousRank - currentRank))
         });
-
-      } catch(e) {
-        console.error('Erro ao calcular ranking', e);
-      }
+      } catch(e) { console.error(e); }
     };
-
     calculateStats();
-  }, [matches, activeCompetition, currentUserId]);
+  }, [matches, activeCompetition, activeLeague, currentUserId, todayMs, todayStr]);
 
   const handleGuessChange = (matchId: number, side: 'home' | 'away', value: string) => {
     setGuesses((prev) => ({
@@ -294,6 +331,7 @@ export default function DashboardPage() {
   const groupedMatches = matches.reduce((groups: Record<string, DayGroup>, match: any) => {
     const dateObj = new Date(match.match_time);
     const dateKey = dateObj.toLocaleDateString('pt-BR');
+    
     if (!groups[dateKey]) {
       const weekday = dateObj.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
       const dayMonth = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
@@ -301,10 +339,13 @@ export default function DashboardPage() {
         dateKey,
         dateLabel: `${weekday}, ${dayMonth}`,
         rawDate: dateObj,
-        matches: []
+        matches: [],
+        phases: new Set<string>()
       };
     }
     groups[dateKey].matches.push(match);
+    if (match.phase) groups[dateKey].phases.add(match.phase);
+    
     return groups;
   }, {} as Record<string, DayGroup>);
 
@@ -313,40 +354,17 @@ export default function DashboardPage() {
 
   const buttonTextColor = isColorDark(themeColor || '#ea580c') ? '#ffffff' : '#020617';
 
-  if (loadingCompetitions) {
+  if (!activeCompetition?.id) {
     return (
-      <div className="min-h-[50vh] flex items-center justify-center">
-        <Loader2 className="animate-spin text-primary" size={36} />
+      <div className="min-h-[50vh] flex flex-col items-center justify-center text-slate-500 gap-4">
+        <Trophy size={48} className="opacity-20" />
+        <p>Selecione uma competição no menu superior para começar.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 relative">
-      
-      {/* SELETOR DE COMPETIÇÃO */}
-      <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden transition-all">
-        <button
-          onClick={() => setIsCompSelectorOpen(!isCompSelectorOpen)}
-          className="w-full p-4 flex items-center justify-between font-display font-bold uppercase tracking-wide text-sm bg-background/40 hover:bg-background/80 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <Layers size={18} style={{ color: themeColor || 'var(--color-primary)' }} />
-            <span>
-              Bolão Ativo: <span style={{ color: themeColor || 'var(--color-primary)' }}>{activeCompetition?.name || 'Selecione uma Competição'}</span>
-            </span>
-          </div>
-          {isCompSelectorOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </button>
-
-        {isCompSelectorOpen && (
-          <CompetitionSelector 
-            competitions={competitions} 
-            onRowClick={() => setIsCompSelectorOpen(false)}
-          />
-        )}
-      </div>
-
+    <div className="space-y-6 relative pb-10">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <section className="lg:col-span-2 space-y-6">
           
@@ -385,6 +403,7 @@ export default function DashboardPage() {
                         onGuessChange={(side, val) => handleGuessChange(match.id, side, val)}
                         userGuess={match.userGuess}
                         points={match.points}
+                        pointColor={match.pointColor}
                       />
                     ))
                   )}
@@ -399,7 +418,7 @@ export default function DashboardPage() {
                 >
                   <div className="flex items-center gap-2 text-slate-300">
                     <Calendar size={18} style={{ color: themeColor || 'var(--color-primary)' }} /> 
-                    <span>Navegar por Datas</span>
+                    <span>Navegar por Datas e Fases</span>
                   </div>
                   {isDateSelectorOpen ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
                 </button>
@@ -412,27 +431,32 @@ export default function DashboardPage() {
                         const isSelected = selectedDateKey === dayGroup.dateKey;
                         const isCompleted = dayGroup.matches.every(m => m.status === 'FINISHED');
                         const splitLabel = dayGroup.dateLabel.split(', ');
+                        
+                        const phaseType = getPhaseTheme(dayGroup.phases);
+                        const style = phaseConfig[phaseType];
 
                         return (
                           <button
                             key={dayGroup.dateKey}
                             onClick={() => handleDateSelect(dayGroup.dateKey)}
-                            className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl border flex flex-col items-center justify-center transition-all flex-shrink-0 ${
+                            className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl border flex flex-col items-center justify-center transition-all flex-shrink-0 ${
                               isSelected 
-                                ? 'border-primary bg-primary/20 scale-105 shadow-md' 
-                                : isCompleted 
+                                ? style.active + ' ' + style.border
+                                : isCompleted && !isToday
                                   ? 'border-green-500/30 bg-green-900/10 hover:bg-green-900/20' 
-                                  : 'border-border bg-background/50 hover:border-slate-500'
+                                  : style.border + ' ' + style.bg + ' hover:border-slate-500'
                             }`}
                           >
                             <span 
-                              className={`text-[9px] uppercase font-bold px-1 ${isToday ? 'tracking-wider' : 'opacity-70'}`}
+                              className={`text-[9px] uppercase font-bold px-1 z-10 ${isToday ? 'tracking-wider' : 'opacity-80'}`}
                               style={{ color: isToday ? (themeColor || 'var(--color-primary)') : 'inherit' }}
                             >
                               {isToday ? 'HOJE' : splitLabel[0]}
                             </span>
-                            <span className="text-xs sm:text-sm font-bold">{splitLabel[1]}</span>
-                            {isCompleted && !isSelected && <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-green-500 opacity-70" />}
+                            <span className={`text-xs sm:text-sm font-bold z-10 ${isSelected ? '' : style.text}`}>{splitLabel[1]}</span>
+                            
+                            {style.badge && style.badge}
+                            {isCompleted && !isSelected && !style.badge && <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-green-500 opacity-70" />}
                           </button>
                         );
                       })}
@@ -442,18 +466,30 @@ export default function DashboardPage() {
               </div>
 
               {/* 3. JOGOS DA DATA SELECIONADA */}
-              {selectedDateKey !== todayStr && (
+              {selectedDateKey !== todayStr && groupedMatches[selectedDateKey] && (
                 <div 
                   ref={selectedDateSectionRef}
                   className="bg-card border border-border p-5 sm:p-6 rounded-2xl relative shadow-md animate-in fade-in duration-300 scroll-mt-24"
                 >
-                  <h2 className="text-lg sm:text-xl font-display font-bold mb-6 uppercase tracking-tight flex items-center gap-2 text-slate-200">
-                    <Calendar size={20} className="opacity-70" />
-                    {groupedMatches[selectedDateKey]?.dateLabel}
-                  </h2>
+                  {(() => {
+                    const phaseType = getPhaseTheme(groupedMatches[selectedDateKey].phases);
+                    const style = phaseConfig[phaseType];
+                    
+                    const phasesNames = Array.from(groupedMatches[selectedDateKey].phases)
+                      .map(p => phaseNamesBR[p] || p)
+                      .join(', ');
+
+                    return (
+                      <h2 className={`text-lg sm:text-xl font-display font-bold mb-6 uppercase tracking-tight flex items-center gap-2 ${style.text}`}>
+                        {style.icon}
+                        {groupedMatches[selectedDateKey].dateLabel}
+                        <span className="text-xs sm:text-sm ml-1 opacity-70 font-normal">({phasesNames})</span>
+                      </h2>
+                    );
+                  })()}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {groupedMatches[selectedDateKey]?.matches.map((match) => (
+                    {groupedMatches[selectedDateKey].matches.map((match) => (
                       <MatchCard
                         key={match.id}
                         homeTeam={match.home_team}
@@ -469,6 +505,7 @@ export default function DashboardPage() {
                         onGuessChange={(side, val) => handleGuessChange(match.id, side, val)}
                         userGuess={match.userGuess}
                         points={match.points}
+                        pointColor={match.pointColor}
                       />
                     ))}
                   </div>
@@ -478,53 +515,22 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* BARRA LATERAL DE DESEMPENHO */}
-        <aside className="space-y-6">
-          <div className="bg-card border border-border p-6 rounded-2xl shadow-sm sticky top-24">
-            <h2 className="text-lg font-display font-bold mb-6 uppercase tracking-tight flex items-center gap-2">
-              <TrendingUp size={18} style={{ color: themeColor || 'var(--color-primary)' }} /> Meu Desempenho
-            </h2>
-            
-            {/* CARD DE POSIÇÃO NO RANKING */}
-            <div className="flex items-center justify-between bg-background/50 p-4 rounded-xl border border-border/50 mb-6">
-              <div className="flex flex-col">
-                <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider">Posição Atual</span>
-                <span className="text-3xl sm:text-4xl font-display font-bold" style={{ color: themeColor || 'var(--color-primary)' }}>
-                  {userStats.rank > 0 ? `${userStats.rank}º` : '-'}
-                </span>
-              </div>
-              <div className={`flex flex-col items-end ${userStats.movement > 0 ? 'text-green-500' : userStats.movement < 0 ? 'text-red-500' : 'text-slate-500'}`}>
-                <span className="text-[9px] font-bold uppercase tracking-wider opacity-80">Movimento</span>
-                <div className="flex items-center gap-0.5 font-bold text-lg sm:text-xl">
-                  {userStats.movement > 0 ? <ChevronUp size={20} /> : userStats.movement < 0 ? <ChevronDown size={20} /> : <Minus size={18} className="opacity-50" />}
-                  {userStats.movement !== 0 && Math.abs(userStats.movement)}
-                </div>
-              </div>
+        {/* BARRA LATERAL COM STICKY FIXO */}
+        <aside className="space-y-6 sticky top-24 self-start">
+          <div className="bg-primary/10 border border-primary/30 p-4 rounded-xl flex items-center gap-3">
+            <div className="p-2 bg-background rounded-lg text-primary shadow-sm" style={{ color: themeColor }}>
+              <Trophy size={20} />
             </div>
-
-            <div className="space-y-4">
-              <div className="flex justify-between items-center pb-3 border-b border-border/50">
-                <span className="text-slate-400 text-sm">Pontuação Total</span>
-                <span className="font-bold text-lg font-display">{userStats.totalPoints} pts</span>
-              </div>
-              <div className="flex justify-between items-center pb-3 border-b border-border/50">
-                <span className="text-slate-400 text-sm">Feitos Hoje</span>
-                <span className="font-bold text-lg font-display text-green-400">+{userStats.todayPoints} pts</span>
-              </div>
-              <div className="flex justify-between items-center pb-3 border-b border-border/50">
-                <span className="text-slate-400 text-sm">Última Rodada</span>
-                <span className="font-bold text-lg font-display">+{userStats.lastDayPoints} pts</span>
-              </div>
-              <div className="flex justify-between items-center pb-1">
-                <span className="text-slate-400 text-sm">Placares Cravados</span>
-                <span className="font-bold text-lg font-display text-yellow-500">{userStats.exactScores}</span>
-              </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Exibindo estatísticas da</span>
+              <h3 className="font-bold text-sm text-white">{activeLeague ? activeLeague.name : 'Liga Global'}</h3>
             </div>
           </div>
+
+          <UserPerformance stats={userStats} themeColor={themeColor} />
         </aside>
       </div>
 
-      {/* BOTÃO FLUTUANTE DE SALVAMENTO */}
       {Object.keys(guesses).length > 0 && (
         <button
           onClick={handleSaveAllGuesses}

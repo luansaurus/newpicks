@@ -1,58 +1,51 @@
 'use client';
 
-// Importa o contexto do lugar correto, em vez de criá-lo aqui
 import { useCompetition } from '@/context/CompetitionContext';
+import { Trophy } from 'lucide-react';
 
 interface CompetitionSelectorProps {
   competitions: any[];
-  onRowClick?: () => void;
+  onRowClick: () => void;
 }
 
 export function CompetitionSelector({ competitions, onRowClick }: CompetitionSelectorProps) {
-  const { activeCompetition, selectCompetition } = useCompetition();
+  const { selectCompetition, activeCompetition } = useCompetition();
 
   if (!competitions || competitions.length === 0) {
     return (
-      <div className="p-4 text-center text-xs text-slate-500 bg-background/20 italic">
+      <div className="p-4 text-sm text-slate-400 text-center">
         Nenhuma competição ativa encontrada.
       </div>
     );
   }
 
   return (
-    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 bg-background/20">
+    <div className="py-2 max-h-60 overflow-y-auto scrollbar-thin">
       {competitions.map((comp) => {
-        const isSelected = activeCompetition?.id === comp.id;
+        const isActive = activeCompetition?.id === comp.id;
         
         return (
-          <div
+          <button
             key={comp.id}
             onClick={() => {
               selectCompetition(comp);
-              if (onRowClick) onRowClick();
+              // Salva no cache para manter a competição ao recarregar a página
+              localStorage.setItem('active_competition_obj', JSON.stringify(comp));
+              onRowClick();
             }}
-            className={`flex items-center justify-between p-3 rounded-xl border-2 cursor-pointer transition-all ${
-              isSelected ? 'bg-card' : 'bg-card/40 border-transparent hover:border-slate-800'
+            className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left ${
+              isActive 
+                ? 'bg-primary/20 text-primary font-bold border-l-2 border-primary' 
+                : 'hover:bg-white/5 text-slate-300 border-l-2 border-transparent'
             }`}
-            style={{ borderColor: isSelected ? (comp.theme_primary || 'var(--color-primary)') : 'transparent' }}
           >
-            <div className="flex items-center gap-3 truncate">
-              {/* Ícone Real da Competição */}
-              <img 
-                src={comp.competition_logo} 
-                alt={comp.name} 
-                className="w-6 h-6 object-contain"
-              />
-              <span className="text-xs font-bold uppercase truncate">{comp.name}</span>
-            </div>
-
-            {/* Status da Competição */}
-            <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase tracking-wider ${
-              !comp.is_active ? 'bg-slate-800 text-slate-400' : 'bg-green-500/10 text-green-400'
-            }`}>
-              {!comp.is_active ? 'Finalizado' : 'Em andamento'}
-            </span>
-          </div>
+            {comp.competition_logo ? (
+              <img src={comp.competition_logo} alt={comp.name} className="w-6 h-6 rounded-full object-cover" />
+            ) : (
+              <Trophy size={20} className="opacity-50" />
+            )}
+            <span className="text-sm truncate">{comp.name}</span>
+          </button>
         );
       })}
     </div>
