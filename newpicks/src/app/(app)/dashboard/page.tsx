@@ -157,24 +157,32 @@ export default function DashboardPage() {
             
             let matchPoints = undefined;
             let matchColor: any = 'RED';
-
             if (uiStatus === 'FINISHED' && userGuessData) {
+              // Motor sempre calcula a cor, pois ela é puramente visual (Verde/Azul/Amarelo/Vermelho)
+              const calc = calculateGuessPoints(
+                match.home_score, match.away_score, 
+                userGuessData.home_guess, userGuessData.away_guess, 
+                rulesToUse, isPlayoffPhase(match.phase), 
+                match.home_penalty, match.away_penalty
+              );
+              
+              matchColor = calc.color; 
+
               if (activeLeague) {
-                const calc = calculateGuessPoints(match.home_score, match.away_score, userGuessData.home_guess, userGuessData.away_guess, rulesToUse, isPlayoffPhase(match.phase), match.home_penalty, match.away_penalty);
-                matchColor = calc.color;
                 matchPoints = calc.pts;
               } else {
-                // LIGA GLOBAL (Pega do Banco + Multiplicador do Frontend)
-                matchPoints = userGuessData.points_awarded || 0;
-                if (isPlayoffPhase(match.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1) {
-                  matchPoints *= GLOBAL_LEAGUE_RULES.playoff_multiplier;
-                }
+                // LIGA GLOBAL: Pega o ponto do banco, mas GARANTE que não seja undefined
+                const basePoints = userGuessData.points_awarded || 0;
+                matchPoints = isPlayoffPhase(match.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1
+                  ? basePoints * GLOBAL_LEAGUE_RULES.playoff_multiplier
+                  : basePoints;
               }
             }
             
             return {
               id: match.id, match_time: match.match_time, status: uiStatus, home_score: match.home_score ?? undefined, away_score: match.away_score ?? undefined, home_penalties: match.home_penalty ?? undefined, away_penalties: match.away_penalty ?? undefined, phase: match.phase || 'groups', home_team: Array.isArray(match.home_team) ? match.home_team[0] : match.home_team, away_team: Array.isArray(match.away_team) ? match.away_team[0] : match.away_team, userGuess: userGuessData ? { home_guess: userGuessData.home_guess, away_guess: userGuessData.away_guess } : undefined,
-              points: matchPoints, pointColor: matchColor
+              points: matchPoints ?? 0, // <--- O PULO DO GATO: Se for undefined, envia 0 para o card renderizar
+              pointColor: matchColor
             };
           });
           setMatches(formattedMatches);

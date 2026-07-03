@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { Loader2, Trophy, Medal, ChevronUp, ChevronDown, Minus, Users, ChartNoAxesCombinedIcon, Search, Eye } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
@@ -51,9 +51,10 @@ export default function RankingPage() {
           
         if (members) {
           members.forEach((m: any) => {
-            validUsers.add(m.user_id);
             const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
-            if (profile?.is_test) return;
+            if (profile?.is_test) return; // Ignora os usuários de teste
+            
+            validUsers.add(m.user_id);
             const team = profile?.teams ? (Array.isArray(profile.teams) ? profile.teams[0] : profile.teams) : null;
             totalScores[m.user_id] = { id: m.user_id, name: profile?.username || 'Usuário', logo: team?.logo_url || defaultLogo, total: 0 };
             yesterdayScores[m.user_id] = 0;
@@ -61,7 +62,6 @@ export default function RankingPage() {
         }
       }
 
-      // Busca os jogos com limite alto
       const { data: matches } = await supabase
         .from('matches')
         .select('id, match_time, status, home_score, away_score, home_penalty, away_penalty, phase, competition_id, home_team, away_team, home_team_rel:teams!home_team_id(id, name, short_code, logo_url), away_team_rel:teams!away_team_id(id, name, short_code, logo_url)')
@@ -71,7 +71,7 @@ export default function RankingPage() {
 
       const matchDataObj: Record<number, any> = {};
       const matchesWithGuesses: Record<number, any> = {}; 
-      const matchIds: number[] = []; // Array para buscar os palpites com precisão
+      const matchIds: number[] = [];
 
       matches?.forEach(m => {
         let uiStatus = 'SCHEDULED';
@@ -95,10 +95,9 @@ export default function RankingPage() {
         };
       });
 
-      // BLINDAGEM DO LIMITE: Usa .in para buscar apenas palpites desses jogos, ignorando problemas de competition_id vazio no banco
       const { data: allGuesses } = await supabase
         .from('guesses')
-        .select(`user_id, match_id, points_awarded, home_guess, away_guess, user_profile:profiles!guesses_user_id_fkey(username, teams(logo_url))`)
+        .select(`user_id, match_id, points_awarded, home_guess, away_guess, penalty_winner_guess, user_profile:profiles!guesses_user_id_fkey(username, teams(logo_url), is_test)`)
         .in('match_id', matchIds)
         .limit(20000); 
 
@@ -106,8 +105,10 @@ export default function RankingPage() {
       const rulesToUse = activeLeague || GLOBAL_LEAGUE_RULES;
 
       allGuesses?.forEach((g: any) => {
+        const profile = Array.isArray(g.user_profile) ? g.user_profile[0] : g.user_profile;
+        if (profile?.is_test) return;
+
         const uid = g.user_id;
-        
         if (activeLeague && !validUsers.has(uid)) return;
 
         const mData = matchDataObj[g.match_id];
@@ -121,8 +122,10 @@ export default function RankingPage() {
           guessColor = calc.color;
 
           if (activeLeague) {
+            // Liga Privada: O Motor recalcula com as regras customizadas
             pts = calc.pts;
           } else {
+            // LIGA GLOBAL: Pega os pontos base do banco e APLICA a multiplicação do mata-mata
             pts = g.points_awarded || 0;
             if (isPlayoffPhase(mData.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1) {
               pts *= GLOBAL_LEAGUE_RULES.playoff_multiplier;
@@ -130,15 +133,14 @@ export default function RankingPage() {
           }
         }
 
-        const profile = Array.isArray(g.user_profile) ? g.user_profile[0] : g.user_profile;
         const userName = profile?.username || 'Competidor';
         const team = profile?.teams ? (Array.isArray(profile.teams) ? profile.teams[0] : profile.teams) : null;
 
-        // INJETANDO DADOS NO MODAL
         if (matchesWithGuesses[g.match_id]) {
           matchesWithGuesses[g.match_id].palpites[uid] = { 
             home: g.home_guess, 
             away: g.away_guess, 
+            penalty_winner: g.penalty_winner_guess,
             pts, 
             color: guessColor,
             name: userName
@@ -245,7 +247,6 @@ export default function RankingPage() {
         </div>
       )}
 
-      {/* RENDERIZAÇÃO DOS MODAIS: Passando a lista de ranking oficial */}
       <SpyModal 
         isOpen={spyModal.isOpen} 
         onClose={() => setSpyModal({isOpen: false, user: null})} 
