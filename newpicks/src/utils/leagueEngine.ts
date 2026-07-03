@@ -1,78 +1,74 @@
-export interface LeagueRules {
-  id: string | null;
-  rule_exact_score: number;
-  rule_goal_diff: number;
-  rule_winner: number;
-  playoff_multiplier: number;
+// utils/leagueEngine.ts
+
+export function calculateGuessPoints(
+  homeScore: number,
+  awayScore: number,
+  homeGuess: number,
+  awayGuess: number,
+  rules: any,
+  isPlayoff: boolean = false,
+  homePenalty?: number,
+  awayPenalty?: number,
+  penaltyWinnerGuess?: 'home' | 'away' | null
+): { pts: number; color: 'GREEN' | 'BLUE' | 'YELLOW' | 'RED' } {
+  let pts = 0;
+  let color: 'GREEN' | 'BLUE' | 'YELLOW' | 'RED' = 'RED';
+
+  // Verifica se o placar foi exato
+  if (homeScore === homeGuess && awayScore === awayGuess) {
+    pts += rules.rule_exact_score || 5;
+    color = 'GREEN';
+  } 
+  // Verifica se acertou o vencedor e o saldo (ou empate)
+  else if (homeScore - awayScore === homeGuess - awayGuess) {
+    pts += rules.rule_goal_diff || 3;
+    color = 'BLUE';
+  } 
+  // Verifica se acertou apenas o vencedor
+  else if (
+    (homeScore > awayScore && homeGuess > awayGuess) ||
+    (homeScore < awayScore && homeGuess < awayGuess) ||
+    (homeScore === awayScore && homeGuess === awayGuess)
+  ) {
+    pts += rules.rule_winner || 2;
+    color = 'YELLOW';
+  }
+
+  // Bônus por acertar o vencedor dos pênaltis (apenas em caso de empate)
+  if (
+    homeScore === awayScore && 
+    isPlayoff && 
+    penaltyWinnerGuess &&
+    homePenalty !== undefined && 
+    awayPenalty !== undefined
+  ) {
+    const actualWinner = homePenalty > awayPenalty ? 'home' : 'away';
+    if (penaltyWinnerGuess === actualWinner) {
+      pts += rules.penalty_winner_points || 1;
+      // Se acertou o vencedor dos pênaltis, sobe a cor para GREEN se ainda não for
+      if (color === 'YELLOW' || color === 'BLUE') {
+        color = 'GREEN';
+      }
+    }
+  }
+
+  // Multiplicador para fases eliminatórias (aplica-se a todos os pontos)
+  if (isPlayoff && rules.playoff_multiplier && rules.playoff_multiplier > 1) {
+    pts = Math.round(pts * rules.playoff_multiplier);
+  }
+
+  return { pts, color };
 }
 
-export const GLOBAL_LEAGUE_RULES: LeagueRules = {
-  id: null,
+export function isPlayoffPhase(phase: string): boolean {
+  const playoffPhases = ['round_of_32', 'round_of_16', 'quarter_final', 'semi_final', 'third_place', 'final'];
+  return playoffPhases.includes(phase);
+}
+
+export const GLOBAL_LEAGUE_RULES = {
   rule_exact_score: 5,
   rule_goal_diff: 3,
   rule_winner: 2,
-  playoff_multiplier: 2.0
+  playoff_multiplier: 2.0,
+  penalty_winner_points: 1
 };
-
-// Verifica se a fase é mata-mata (não é grupo)
-export const isPlayoffPhase = (phase: string) => {
-  if (!phase) return false;
-  return !phase.toLowerCase().includes('group');
-};
-
-export function calculateGuessPoints(
-  homeScore: number, 
-  awayScore: number, 
-  homeGuess: number, 
-  awayGuess: number, 
-  leagueRules: LeagueRules, 
-  isPlayoff: boolean,
-  homePenalties?: number,
-  awayPenalties?: number
-): { pts: number, color: 'GREEN' | 'BLUE' | 'YELLOW' | 'RED' } {
-  
-  // Define o vencedor real (considerando pênaltis para o desempate, se houver)
-  let actualHomeScore = homeScore;
-  let actualAwayScore = awayScore;
-
-  if (homeScore === awayScore && homePenalties !== undefined && awayPenalties !== undefined) {
-     actualHomeScore = homeScore + (homePenalties > awayPenalties ? 1 : 0);
-     actualAwayScore = awayScore + (awayPenalties > homePenalties ? 1 : 0);
-  }
-
-  // 1. Mapeia as regras ativas
-  const availableTiers = [];
-  if (leagueRules.rule_exact_score > 0) availableTiers.push({ id: 'EXACT', pts: leagueRules.rule_exact_score, color: 'GRAY' });
-  if (leagueRules.rule_goal_diff > 0) availableTiers.push({ id: 'DIFF', pts: leagueRules.rule_goal_diff, color: 'GRAY' });
-  if (leagueRules.rule_winner > 0) availableTiers.push({ id: 'WINNER', pts: leagueRules.rule_winner, color: 'GRAY' });
-
-  // 2. Ordena para definir as cores dinâmicas (Maior = Verde)
-  availableTiers.sort((a, b) => b.pts - a.pts);
-  const palette: ('GREEN' | 'BLUE' | 'YELLOW')[] = ['GREEN', 'BLUE', 'YELLOW'];
-  availableTiers.forEach((tier, index) => {
-    tier.color = palette[index] || 'GRAY';
-  });
-
-  // 3. Descobre a qualificação do palpite
-  let hitTier = null;
-  if (homeScore === homeGuess && awayScore === awayGuess) {
-    hitTier = 'EXACT';
-  } else if ((homeScore - awayScore) === (homeGuess - awayGuess)) {
-    hitTier = 'DIFF';
-  } else if (Math.sign(actualHomeScore - actualAwayScore) === Math.sign(homeGuess - awayGuess)) {
-    hitTier = 'WINNER';
-  }
-
-  if (!hitTier) return { pts: 0, color: 'RED' };
-  
-  const tierData = availableTiers.find(t => t.id === hitTier);
-  if (!tierData) return { pts: 0, color: 'RED' }; // Regra desativada na liga
-
-  // 4. Aplica Multiplicador (Se existir e for mata-mata)
-  let finalPts = tierData.pts;
-  if (isPlayoff && leagueRules.playoff_multiplier > 1) {
-    finalPts *= leagueRules.playoff_multiplier;
-  }
-
-  return { pts: finalPts, color: tierData.color as any };
-}

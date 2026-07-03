@@ -1,4 +1,4 @@
-import { Clock, Radio, Award } from 'lucide-react';
+import { Clock, Radio, Award, X } from 'lucide-react';
 
 export type MatchStatus = 'SCHEDULED' | 'IN_PLAY' | 'FINISHED';
 
@@ -21,10 +21,16 @@ export interface MatchCardProps {
   onClick?: () => void;
   guessHome?: string;
   guessAway?: string;
-  onGuessChange?: (side: 'home' | 'away', value: string) => void;
-  userGuess?: { home_guess: number; away_guess: number } | null;
+  penaltyWinnerGuess?: 'home' | 'away' | null;
+  showPenaltySelector?: boolean;
+  onGuessChange?: (side: 'home' | 'away' | 'penaltyWinner', value: string) => void;
+  userGuess?: { 
+    home_guess: number; 
+    away_guess: number;
+    penalty_winner_guess?: 'home' | 'away' | null;
+  } | null;
   points?: number;
-  pointColor?: 'GREEN' | 'BLUE' | 'YELLOW' | 'RED'; // Nova propriedade para o Motor de Ligas
+  pointColor?: 'GREEN' | 'BLUE' | 'YELLOW' | 'RED';
 }
 
 export function MatchCard({
@@ -39,10 +45,12 @@ export function MatchCard({
   onClick,
   guessHome,
   guessAway,
+  penaltyWinnerGuess,
+  showPenaltySelector = false,
   onGuessChange,
   userGuess,
   points,
-  pointColor = 'RED' // Fallback padrão
+  pointColor = 'RED'
 }: MatchCardProps) {
   
   const isLocked = new Date(matchDate).getTime() - new Date().getTime() < 15 * 60 * 1000;
@@ -94,13 +102,14 @@ export function MatchCard({
 
   const displayHome = guessHome ?? (userGuess?.home_guess?.toString() || '');
   const displayAway = guessAway ?? (userGuess?.away_guess?.toString() || '');
+  const displayPenaltyWinner = penaltyWinnerGuess ?? userGuess?.penalty_winner_guess ?? null;
 
   // --- LÓGICA DE CORES DO MOTOR DE LIGAS ---
   let cardBorderColor = 'border-2 border-border';
   let cardBgColor = 'bg-card';
   let pointsBadgeColor = 'text-slate-400 bg-slate-800';
 
-  if (status === 'FINISHED' && points !== undefined) {
+  if (status === 'FINISHED' && points !== undefined && points > 0) {
     if (pointColor === 'GREEN') {
       cardBorderColor = 'border-2 border-green-500/60 shadow-[0_0_15px_rgba(34,197,94,0.15)]';
       cardBgColor = 'bg-green-500/10';
@@ -193,9 +202,16 @@ export function MatchCard({
                 <div className="flex flex-col items-center gap-1 mt-1 w-full">
                   <span className="text-[10px] sm:text-xs text-slate-300 font-medium bg-slate-950/60 px-3 py-1 rounded-md border border-slate-800 backdrop-blur-sm shadow-sm">
                     Palpite: <strong className="text-white">{userGuess.home_guess} : {userGuess.away_guess}</strong>
+                    {userGuess.penalty_winner_guess && (
+                      <span className="ml-1 text-xs">
+                        {userGuess.penalty_winner_guess === 'home' 
+                          ? `🏆 ${homeTeam?.short_code || 'Casa'} nos pênaltis` 
+                          : `🏆 ${awayTeam?.short_code || 'Fora'} nos pênaltis`}
+                      </span>
+                    )}
                   </span>
                   
-                  {points !== undefined && (
+                  {points !== undefined && points > 0 && (
                     <div className={`flex items-center gap-1.5 font-bold text-[10px] sm:text-xs mt-1 px-3 py-1 rounded-md border w-full justify-center shadow-sm backdrop-blur-sm ${pointsBadgeColor}`}>
                       <Award size={14} /> 
                       <span>{points} pts</span>
@@ -206,22 +222,67 @@ export function MatchCard({
             </div>
             
           ) : status === 'SCHEDULED' && !isLocked ? (
-            <div className="flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-3">
               <div className="flex items-center gap-2 sm:gap-3">
                 <input 
-                  type="number" min="0" value={displayHome}
+                  type="number" 
+                  min="0" 
+                  value={displayHome}
                   onChange={(e) => onGuessChange && onGuessChange('home', e.target.value)}
                   className="w-16 sm:w-15 h-15 sm:h-20 bg-background/50 border border-border rounded-xl text-center text-3xl sm:text-4xl font-display font-bold text-white focus:ring-2 focus:ring-primary focus:outline-none transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="-"
                 />
                 <span className="text-xl sm:text-2xl font-display text-slate-600 font-bold">:</span>
                 <input 
-                  type="number" min="0" value={displayAway}
+                  type="number" 
+                  min="0" 
+                  value={displayAway}
                   onChange={(e) => onGuessChange && onGuessChange('away', e.target.value)}
                   className="w-16 sm:w-15 h-15 sm:h-20 bg-background/50 border border-border rounded-xl text-center text-3xl sm:text-4xl font-display font-bold text-white focus:ring-2 focus:ring-primary focus:outline-none transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="-"
                 />
               </div>
+
+              {/* Seletor de vencedor nos pênaltis - aparece APENAS se showPenaltySelector for true */}
+              {showPenaltySelector && (
+                <div className="w-full pt-2 border-t border-border/50 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase text-slate-500 font-bold tracking-wider whitespace-nowrap">
+                      Pênaltis:
+                    </span>
+                    <div className="flex gap-1.5 flex-1">
+                      <button
+                        onClick={() => onGuessChange?.('penaltyWinner', 'home')}
+                        className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-bold transition-all ${
+                          displayPenaltyWinner === 'home'
+                            ? 'bg-primary/20 border-primary text-primary'
+                            : 'bg-background/30 border-border hover:bg-background/50 text-slate-400'
+                        } border`}
+                      >
+                        {homeTeam?.short_code || 'Casa'}
+                      </button>
+                      <button
+                        onClick={() => onGuessChange?.('penaltyWinner', 'away')}
+                        className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-bold transition-all ${
+                          displayPenaltyWinner === 'away'
+                            ? 'bg-primary/20 border-primary text-primary'
+                            : 'bg-background/30 border-border hover:bg-background/50 text-slate-400'
+                        } border`}
+                      >
+                        {awayTeam?.short_code || 'Fora'}
+                      </button>
+                      {displayPenaltyWinner && (
+                        <button
+                          onClick={() => onGuessChange?.('penaltyWinner', '')}
+                          className="py-1 px-2 rounded-lg text-[10px] text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2">
@@ -238,6 +299,13 @@ export function MatchCard({
               {userGuess && (
                 <span className="text-[10px] sm:text-xs text-slate-300 font-medium bg-slate-950/60 px-2.5 py-1 rounded-md border border-slate-800 mt-1 backdrop-blur-sm shadow-sm">
                   Seu palpite: <strong className="text-white">{userGuess.home_guess} - {userGuess.away_guess}</strong>
+                  {userGuess.penalty_winner_guess && (
+                    <span className="ml-1 text-xs">
+                      {userGuess.penalty_winner_guess === 'home' 
+                        ? `🏆 ${homeTeam?.short_code || 'Casa'}` 
+                        : `🏆 ${awayTeam?.short_code || 'Fora'}`}
+                    </span>
+                  )}
                 </span>
               )}
             </div>
