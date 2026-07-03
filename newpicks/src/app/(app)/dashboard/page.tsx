@@ -127,7 +127,8 @@ export default function DashboardPage() {
     };
     initUser();
   }, []);
-// 1. CARREGAMENTO DOS JOGOS
+
+  // 1. CARREGAMENTO DOS JOGOS
   useEffect(() => {
     if (!activeCompetition?.id || !currentUserId) return;
 
@@ -158,7 +159,6 @@ export default function DashboardPage() {
             let matchPoints = undefined;
             let matchColor: any = 'RED';
             if (uiStatus === 'FINISHED' && userGuessData) {
-              // Motor sempre calcula a cor, pois ela é puramente visual (Verde/Azul/Amarelo/Vermelho)
               const calc = calculateGuessPoints(
                 match.home_score, match.away_score, 
                 userGuessData.home_guess, userGuessData.away_guess, 
@@ -171,7 +171,6 @@ export default function DashboardPage() {
               if (activeLeague) {
                 matchPoints = calc.pts;
               } else {
-                // LIGA GLOBAL: Pega o ponto do banco, mas GARANTE que não seja undefined
                 const basePoints = userGuessData.points_awarded || 0;
                 matchPoints = isPlayoffPhase(match.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1
                   ? basePoints * GLOBAL_LEAGUE_RULES.playoff_multiplier
@@ -181,7 +180,7 @@ export default function DashboardPage() {
             
             return {
               id: match.id, match_time: match.match_time, status: uiStatus, home_score: match.home_score ?? undefined, away_score: match.away_score ?? undefined, home_penalties: match.home_penalty ?? undefined, away_penalties: match.away_penalty ?? undefined, phase: match.phase || 'groups', home_team: Array.isArray(match.home_team) ? match.home_team[0] : match.home_team, away_team: Array.isArray(match.away_team) ? match.away_team[0] : match.away_team, userGuess: userGuessData ? { home_guess: userGuessData.home_guess, away_guess: userGuessData.away_guess } : undefined,
-              points: matchPoints ?? 0, // <--- O PULO DO GATO: Se for undefined, envia 0 para o card renderizar
+              points: matchPoints ?? 0, 
               pointColor: matchColor
             };
           });
@@ -196,7 +195,7 @@ export default function DashboardPage() {
     fetchMatchesByCompetition();
   }, [activeCompetition, activeLeague, currentUserId]); 
 
-  // 2. CÁLCULO DE ESTATÍSTICAS (Isolado pela Liga para Ranking Correto)
+  // 2. CÁLCULO DE ESTATÍSTICAS
   useEffect(() => {
     if (!activeCompetition?.id || !currentUserId || matches.length === 0) return;
 
@@ -207,7 +206,6 @@ export default function DashboardPage() {
 
         if (!allGuessesData) return;
 
-        // FILTRO DE USUÁRIOS DA LIGA (Resolve o bug de aparecer em 3º quando está sozinho)
         const validUsers = new Set<string>();
         if (activeLeague) {
           const { data: members } = await supabase.from('league_members').select('user_id').eq('league_id', activeLeague.id);
@@ -231,7 +229,6 @@ export default function DashboardPage() {
         const totalScores: Record<string, number> = {};
         const previousScores: Record<string, number> = {}; 
 
-        // Inicia zerado para todo mundo da liga (Garante o tamanho correto do ranking)
         if (activeLeague) {
           validUsers.forEach(uid => { totalScores[uid] = 0; previousScores[uid] = 0; });
         }
@@ -241,7 +238,6 @@ export default function DashboardPage() {
         allGuessesData.forEach(guess => {
           const uid = guess.user_id;
           
-          // Se for Liga Privada, ignora quem não é membro!
           if (activeLeague && !validUsers.has(uid)) return;
 
           const mDateStr = matchDateStrings[guess.match_id];
@@ -336,6 +332,7 @@ export default function DashboardPage() {
     }, 100);
   };
 
+  // Agrupamento de Datas
   const groupedMatches = matches.reduce((groups: Record<string, DayGroup>, match: any) => {
     const dateObj = new Date(match.match_time);
     const dateKey = dateObj.toLocaleDateString('pt-BR');
@@ -359,6 +356,10 @@ export default function DashboardPage() {
 
   const sortedDays: DayGroup[] = Object.values(groupedMatches).sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
   const todayMatches = groupedMatches[todayStr]?.matches || [];
+
+  // 3. SEPARAÇÃO DAS DATAS POR FASE PARA O NAVIGATOR
+  const sortedDaysGroups = sortedDays.filter(day => !Array.from(day.phases).some(p => isPlayoffPhase(p)));
+  const sortedDaysPlayoffs = sortedDays.filter(day => Array.from(day.phases).some(p => isPlayoffPhase(p)));
 
   const buttonTextColor = isColorDark(themeColor || '#ea580c') ? '#ffffff' : '#020617';
 
@@ -418,7 +419,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* 2. NAVEGAÇÃO DE DATAS COLAPSÁVEL */}
+              {/* 2. NAVEGAÇÃO DE DATAS DIVIDIDA POR FASES */}
               <div className="bg-card border border-border rounded-2xl overflow-hidden transition-all shadow-sm">
                 <button
                   onClick={() => setIsDateSelectorOpen(!isDateSelectorOpen)}
@@ -433,42 +434,83 @@ export default function DashboardPage() {
 
                 {isDateSelectorOpen && (
                   <div className="p-4 sm:p-5 pt-0 border-t border-border/50">
-                    <div className="flex flex-wrap gap-2 sm:gap-3 mt-4">
-                      {sortedDays.map((dayGroup) => {
-                        const isToday = dayGroup.dateKey === todayStr;
-                        const isSelected = selectedDateKey === dayGroup.dateKey;
-                        const isCompleted = dayGroup.matches.every(m => m.status === 'FINISHED');
-                        const splitLabel = dayGroup.dateLabel.split(', ');
-                        
-                        const phaseType = getPhaseTheme(dayGroup.phases);
-                        const style = phaseConfig[phaseType];
+                    
+                    {/* BLOCO: FASE DE GRUPOS */}
+                    {sortedDaysGroups.length > 0 && (
+                      <div className="mt-4">
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Fase de Grupos</h4>
+                        <div className="flex flex-wrap gap-2 sm:gap-3">
+                          {sortedDaysGroups.map((dayGroup) => {
+                            const isToday = dayGroup.dateKey === todayStr;
+                            const isSelected = selectedDateKey === dayGroup.dateKey;
+                            const isCompleted = dayGroup.matches.every(m => m.status === 'FINISHED');
+                            const splitLabel = dayGroup.dateLabel.split(', ');
+                            const phaseType = getPhaseTheme(dayGroup.phases);
+                            const style = phaseConfig[phaseType];
 
-                        return (
-                          <button
-                            key={dayGroup.dateKey}
-                            onClick={() => handleDateSelect(dayGroup.dateKey)}
-                            className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl border flex flex-col items-center justify-center transition-all flex-shrink-0 ${
-                              isSelected 
-                                ? style.active + ' ' + style.border
-                                : isCompleted && !isToday
-                                  ? 'border-green-500/30 bg-green-900/10 hover:bg-green-900/20' 
-                                  : style.border + ' ' + style.bg + ' hover:border-slate-500'
-                            }`}
-                          >
-                            <span 
-                              className={`text-[9px] uppercase font-bold px-1 z-10 ${isToday ? 'tracking-wider' : 'opacity-80'}`}
-                              style={{ color: isToday ? (themeColor || 'var(--color-primary)') : 'inherit' }}
-                            >
-                              {isToday ? 'HOJE' : splitLabel[0]}
-                            </span>
-                            <span className={`text-xs sm:text-sm font-bold z-10 ${isSelected ? '' : style.text}`}>{splitLabel[1]}</span>
-                            
-                            {style.badge && style.badge}
-                            {isCompleted && !isSelected && !style.badge && <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-green-500 opacity-70" />}
-                          </button>
-                        );
-                      })}
-                    </div>
+                            return (
+                              <button
+                                key={dayGroup.dateKey}
+                                onClick={() => handleDateSelect(dayGroup.dateKey)}
+                                className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl border flex flex-col items-center justify-center transition-all flex-shrink-0 ${
+                                  isSelected 
+                                    ? style.active + ' ' + style.border
+                                    : isCompleted && !isToday
+                                      ? 'border-green-500/30 bg-green-900/10 hover:bg-green-900/20' 
+                                      : style.border + ' ' + style.bg + ' hover:border-slate-500'
+                                }`}
+                              >
+                                <span className={`text-[9px] uppercase font-bold px-1 z-10 ${isToday ? 'tracking-wider' : 'opacity-80'}`} style={{ color: isToday ? (themeColor || 'var(--color-primary)') : 'inherit' }}>
+                                  {isToday ? 'HOJE' : splitLabel[0]}
+                                </span>
+                                <span className={`text-xs sm:text-sm font-bold z-10 ${isSelected ? '' : style.text}`}>{splitLabel[1]}</span>
+                                {style.badge && style.badge}
+                                {isCompleted && !isSelected && !style.badge && <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-green-500 opacity-70" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* BLOCO: FASE ELIMINATÓRIA */}
+                    {sortedDaysPlayoffs.length > 0 && (
+                      <div className="mt-6 pt-4 border-t border-border/30">
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Fases Eliminatórias</h4>
+                        <div className="flex flex-wrap gap-2 sm:gap-3">
+                          {sortedDaysPlayoffs.map((dayGroup) => {
+                            const isToday = dayGroup.dateKey === todayStr;
+                            const isSelected = selectedDateKey === dayGroup.dateKey;
+                            const isCompleted = dayGroup.matches.every(m => m.status === 'FINISHED');
+                            const splitLabel = dayGroup.dateLabel.split(', ');
+                            const phaseType = getPhaseTheme(dayGroup.phases);
+                            const style = phaseConfig[phaseType];
+
+                            return (
+                              <button
+                                key={dayGroup.dateKey}
+                                onClick={() => handleDateSelect(dayGroup.dateKey)}
+                                className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl border flex flex-col items-center justify-center transition-all flex-shrink-0 ${
+                                  isSelected 
+                                    ? style.active + ' ' + style.border
+                                    : isCompleted && !isToday
+                                      ? 'border-green-500/30 bg-green-900/10 hover:bg-green-900/20' 
+                                      : style.border + ' ' + style.bg + ' hover:border-slate-500'
+                                }`}
+                              >
+                                <span className={`text-[9px] uppercase font-bold px-1 z-10 ${isToday ? 'tracking-wider' : 'opacity-80'}`} style={{ color: isToday ? (themeColor || 'var(--color-primary)') : 'inherit' }}>
+                                  {isToday ? 'HOJE' : splitLabel[0]}
+                                </span>
+                                <span className={`text-xs sm:text-sm font-bold z-10 ${isSelected ? '' : style.text}`}>{splitLabel[1]}</span>
+                                {style.badge && style.badge}
+                                {isCompleted && !isSelected && !style.badge && <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-green-500 opacity-70" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                   </div>
                 )}
               </div>

@@ -1,9 +1,16 @@
 'use client';
 
-import React from 'react';
-import { useState, useEffect } from 'react';
-import { X, Minus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Minus, Calendar, Clock, Users, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { isPlayoffPhase } from '@/utils/leagueEngine';
+import { Portal } from '@/components/shared/Portal';
+
+interface DayGroup {
+  dateKey: string;
+  dateLabel: string;
+  rawDate: Date;
+  matches: any[];
+}
 
 const getFormattedDate = (dateString: string | Date) => {
   if (!dateString) return '';
@@ -19,64 +26,136 @@ const getFormattedDate = (dateString: string | Date) => {
   }
 };
 
+const getTime = (dateString: string | Date) => {
+  if (!dateString) return '';
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
+
 export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }: any) {
   const [activeTab, setActiveTab] = useState<'groups' | 'playoffs'>('groups');
   const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  const [showAllDates, setShowAllDates] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const todayStr = getFormattedDate(new Date());
+
+  useEffect(() => {
+    if (isOpen) {
+      const todayMatches = (matches || []).filter((m: any) => getFormattedDate(m.match_time) === todayStr);
+      if (todayMatches.length > 0) {
+        const hasPlayoff = todayMatches.some((m: any) => isPlayoffPhase(m.phase));
+        setActiveTab(hasPlayoff ? 'playoffs' : 'groups');
+      }
+    }
+  }, [isOpen, matches]);
 
   const phaseMatches = (matches || []).filter((m: any) => 
     activeTab === 'groups' ? !isPlayoffPhase(m?.phase) : isPlayoffPhase(m?.phase)
   );
 
-  const groupedByDate = phaseMatches.reduce((acc: any, m: any) => {
+  const groupedByDate = phaseMatches.reduce((acc: Record<string, DayGroup>, m: any) => {
     const dateKey = getFormattedDate(m?.match_time);
     if (!dateKey) return acc;
-    if (!acc[dateKey]) acc[dateKey] = [];
-    acc[dateKey].push(m);
+    if (!acc[dateKey]) {
+      const dateObj = new Date(m.match_time);
+      const weekday = dateObj.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+      const dayMonth = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      acc[dateKey] = {
+        dateKey,
+        dateLabel: `${weekday}, ${dayMonth}`,
+        rawDate: dateObj,
+        matches: []
+      };
+    }
+    acc[dateKey].matches.push(m);
     return acc;
-  }, {});
+  }, {} as Record<string, DayGroup>);
 
-  const datesArray = Object.keys(groupedByDate).sort((a, b) => {
-    const partsA = a.split('/');
-    const partsB = b.split('/');
-    if (partsA.length !== 3 || partsB.length !== 3) return 0;
-    return new Date(Number(partsA[2]), Number(partsA[1]) - 1, Number(partsA[0])).getTime() - 
-           new Date(Number(partsB[2]), Number(partsB[1]) - 1, Number(partsB[0])).getTime();
-  });
+  const datesArray = (Object.values(groupedByDate) as DayGroup[]).sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
 
+  const daysDependency = datesArray.map(d => d.dateKey).join(',');
   useEffect(() => {
     if (isOpen && datesArray.length > 0) {
-      if (datesArray.includes(todayStr)) setSelectedDate(todayStr);
-      else setSelectedDate(datesArray[0]);
+      const dateExists = datesArray.some(d => d.dateKey === selectedDate);
+      if (!dateExists) {
+        const hasToday = datesArray.some(d => d.dateKey === todayStr);
+        setSelectedDate(hasToday ? todayStr : datesArray[0].dateKey);
+      }
     }
-  }, [isOpen, activeTab]);
+  }, [isOpen, activeTab, daysDependency]);
+
+  const currentMatches = [...(groupedByDate[selectedDate]?.matches || [])].sort((a, b) => {
+    return new Date(a.match_time).getTime() - new Date(b.match_time).getTime();
+  });
+
+  const matchesDependency = currentMatches.map(m => m.id).join(',');
+  useEffect(() => {
+    if (currentMatches.length > 0) {
+      const matchExists = currentMatches.some(m => m.id === selectedMatchId);
+      if (!matchExists) {
+        setSelectedMatchId(currentMatches[0].id);
+      }
+    } else {
+      setSelectedMatchId(null);
+    }
+  }, [selectedDate, matchesDependency]);
+
+  // Função para rolar para a data selecionada
+  const scrollToDate = (dateKey: string) => {
+    setSelectedDate(dateKey);
+    if (scrollContainerRef.current) {
+      const button = scrollContainerRef.current.querySelector(`[data-date="${dateKey}"]`);
+      if (button) {
+        button.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+  };
+
+  // Funções para navegação
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -200, behavior: 'smooth' });
+    }
+  };
+
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 200, behavior: 'smooth' });
+    }
+  };
 
   if (!isOpen) return null;
 
-  const currentMatches = groupedByDate[selectedDate] || [];
+  const activeMatch = currentMatches.find(m => m.id === selectedMatchId);
 
   const getWinnerBadge = (guess: any, match: any) => {
     if (!guess) return <Minus size={14} className="text-slate-600" />;
     if (guess.home > guess.away) {
-      return <img src={match?.home_team?.logo_url || ''} className="w-7 h-7 object-contain inline-block drop-shadow-md" title={`Vitória: ${match?.home_team?.name || ''}`} />;
+      return <img src={match?.home_team?.logo_url || ''} className="w-5 h-5 sm:w-6 sm:h-6 object-contain inline-block drop-shadow-md" />;
     }
     if (guess.away > guess.home) {
-      return <img src={match?.away_team?.logo_url || ''} className="w-7 h-7 object-contain inline-block drop-shadow-md" title={`Vitória: ${match?.away_team?.name || ''}`} />;
+      return <img src={match?.away_team?.logo_url || ''} className="w-5 h-5 sm:w-6 sm:h-6 object-contain inline-block drop-shadow-md" />;
     }
     
     if (isPlayoffPhase(match?.phase) && guess.penalty_winner) {
       const isHomePen = guess.penalty_winner === 'home' || String(guess.penalty_winner) === String(match?.home_team?.id);
       const penTeam = isHomePen ? match?.home_team : match?.away_team;
       return (
-        <div className="relative flex items-center justify-center" title={`Vencedor Pênaltis: ${penTeam?.name || ''}`}>
-          {penTeam?.logo_url && <img src={penTeam.logo_url} className="w-5 h-5 object-contain inline-block drop-shadow-md opacity-90" />}
+        <div className="relative flex items-center justify-center">
+          {penTeam?.logo_url && <img src={penTeam.logo_url} className="w-5 h-5 sm:w-6 sm:h-6 object-contain inline-block drop-shadow-md opacity-90" />}
           <div className="absolute -bottom-1 -right-2 bg-slate-900 text-[8px] font-black px-0.5 rounded text-yellow-500 border border-slate-700">P</div>
         </div>
       );
     }
 
-    return <div className="text-[10px] font-black bg-slate-900 px-1.5 rounded text-yellow-500 border border-slate-700 shadow-sm" title="Empate">X</div>;
+    return <div className="text-[10px] sm:text-xs font-black bg-slate-900 px-1.5 rounded text-yellow-500 border border-slate-700 shadow-sm">X</div>;
   };
 
   const getBadgeClass = (color: string) => {
@@ -87,122 +166,322 @@ export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }:
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-card w-full max-w-5xl max-h-[90vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl border border-border">
-        
-        <div className="p-5 border-b border-border flex justify-between items-center bg-background/50">
-          <h2 className="font-display font-bold text-lg uppercase tracking-tight">Comparação Direta</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 hover:bg-white/5 rounded-lg"><X size={20} /></button>
-        </div>
+    <Portal>
+      <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-3 sm:p-6 animate-in fade-in">
+        <div className="bg-card w-full max-w-5xl max-h-[90vh] sm:max-h-[85vh] rounded-xl sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl border border-border relative">
+          
+          {/* CABEÇALHO FIXO COM STICKY */}
+          <div className="p-3 sm:p-4 border-b border-border flex justify-between items-center bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 flex-shrink-0">
+            <h2 className="font-display font-bold text-base sm:text-lg uppercase tracking-tight">Comparação Direta</h2>
+            <button onClick={onClose} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-colors bg-white/5">
+              <X size={24} />
+            </button>
+          </div>
 
-        <div className="grid grid-cols-3 text-center py-2.5 bg-slate-950/40 border-b border-border text-[11px] font-bold uppercase text-slate-400 tracking-wider">
-          <div className="text-primary truncate px-2">{userA?.name || 'Você'}</div>
-          <div className="text-slate-600">VS</div>
-          <div className="text-amber-500 truncate px-2">{userB?.name || 'Oponente'}</div>
-        </div>
+          {/* REGRAS */}
+          <div className="grid grid-cols-3 text-center py-2 sm:py-2.5 bg-slate-950/40 border-b border-border text-[10px] sm:text-[11px] font-bold uppercase text-slate-400 tracking-wider flex-shrink-0">
+            <div className="text-primary truncate px-2">{userA?.name || 'Você'}</div>
+            <div className="text-slate-600">VS</div>
+            <div className="text-amber-500 truncate px-2">{userB?.name || 'Oponente'}</div>
+          </div>
 
-        <div className="flex border-b border-border bg-background/30">
-          <button onClick={() => setActiveTab('groups')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'groups' ? 'border-b-2 border-primary text-white bg-primary/5' : 'text-slate-400 hover:text-slate-300'}`}>Fase de Grupos</button>
-          <button onClick={() => setActiveTab('playoffs')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'playoffs' ? 'border-b-2 border-primary text-white bg-primary/5' : 'text-slate-400 hover:text-slate-300'}`}>Mata-Mata</button>
-        </div>
+          {/* ABAS: GRUPOS / MATA-MATA */}
+          <div className="flex border-b border-border bg-background/30 flex-shrink-0">
+            <button 
+              onClick={() => setActiveTab('groups')} 
+              className={`flex-1 py-2.5 sm:py-3 text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-colors ${
+                activeTab === 'groups' 
+                  ? 'border-b-2 border-primary text-white bg-primary/5' 
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Grupos
+            </button>
+            <button 
+              onClick={() => setActiveTab('playoffs')} 
+              className={`flex-1 py-2.5 sm:py-3 text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-colors ${
+                activeTab === 'playoffs' 
+                  ? 'border-b-2 border-primary text-white bg-primary/5' 
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Mata-Mata
+            </button>
+          </div>
 
-        <div className="p-4 bg-background/20 border-b border-border/40 max-h-36 overflow-y-auto scrollbar-thin">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Selecione uma data da rodada:</span>
-          {datesArray.length === 0 ? (
-            <p className="text-xs text-slate-500 text-center py-2">Nenhum confronto agendado.</p>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-              {datesArray.map(date => (
-                <button
-                  key={date}
-                  onClick={() => setSelectedDate(date)}
-                  className={`py-2 px-3 text-xs font-bold rounded-lg border transition-all truncate ${selectedDate === date ? 'bg-primary text-slate-900 border-primary shadow-md scale-[1.01]' : 'bg-card border-border text-slate-400 hover:text-white hover:border-slate-600'}`}
-                >
-                  {date === todayStr ? 'HOJE 📅' : date}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+          {/* SELETOR DE DATAS - VERSÃO COM BOTÕES E CONTROLES */}
+          <div className="p-2 sm:p-3 bg-background/20 border-b border-border/40 flex-shrink-0">
+            {datesArray.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-1">Nenhum confronto agendado.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {/* Desktop e Mobile: Container com controles */}
+                <div className="flex items-center gap-2">
+                  {/* Botão Esquerda */}
+                  <button
+                    onClick={scrollLeft}
+                    className="hidden sm:flex p-1.5 rounded-lg bg-card/50 border border-border hover:bg-card hover:border-slate-500 transition-colors flex-shrink-0"
+                    aria-label="Rolar para esquerda"
+                  >
+                    <ChevronLeft size={16} className="text-slate-400" />
+                  </button>
 
-        <div className="p-5 overflow-y-auto flex-1 bg-background/5 scrollbar-thin">
-          {currentMatches.length === 0 ? (
-            <div className="text-center text-slate-500 py-10 text-sm">Nenhum jogo nesta data.</div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {currentMatches.map((m: any) => {
-                const guessA = m?.palpites?.[userA?.id];
-                const guessB = m?.palpites?.[userB?.id];
-
-                return (
-                  <div key={m?.id || Math.random()} className="bg-card border border-border/80 rounded-xl p-3 shadow-sm flex flex-col hover:border-slate-600 transition-colors">
+                  {/* Container de Scroll */}
+                  <div 
+                    ref={scrollContainerRef}
+                    className="flex items-center gap-2 overflow-x-auto scrollbar-thin flex-1 py-1"
+                    style={{ scrollbarWidth: 'thin' }}
+                  >
+                    <Calendar size={14} className="text-slate-500 flex-shrink-0 hidden sm:block" />
                     
-                    <div className="flex flex-col items-center justify-center border-b border-border/40 pb-2 mb-3 bg-background/40 p-2 rounded-lg gap-1">
-                      <div className="flex items-center gap-3">
-                        <img src={m?.home_team?.logo_url || ''} className="w-8 h-8 object-contain drop-shadow" title={m?.home_team?.logo_url || ''} />
-                        
-                        <div className="flex items-center gap-1 font-bold font-display text-sm bg-slate-950/60 px-2 py-0.5 rounded border border-border">
-                          <span className={m?.status === 'FINISHED' ? 'text-green-400' : 'text-white'}>{m?.status === 'FINISHED' ? (m?.home_score ?? '-') : '-'}</span>
-                          <span className="text-slate-600 text-xs">x</span>
-                          <span className={m?.status === 'FINISHED' ? 'text-green-400' : 'text-white'}>{m?.status === 'FINISHED' ? (m?.away_score ?? '-') : '-'}</span>
-                        </div>
-                        
-                        <img src={m?.away_team?.logo_url || ''} className="w-8 h-8 object-contain drop-shadow" title={m?.away_team?.logo_url || ''} />
-                      </div>
-                      <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded">
-                        {m?.status === 'FINISHED' ? 'Encerrado' : m?.status === 'IN_PLAY' ? 'Ao Vivo' : 'Agendado'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1 flex-1 px-1">
+                    {datesArray.map((dayGroup: DayGroup) => {
+                      const isToday = dayGroup.dateKey === todayStr;
+                      const isSelected = selectedDate === dayGroup.dateKey;
+                      const matchCount = dayGroup.matches.length;
                       
-                      {/* PALPITE VOCÊ */}
-                      <div className="flex flex-col items-center space-y-1.5 w-5/12">
-                        <div className="h-6 flex items-center justify-center">{getWinnerBadge(guessA, m)}</div>
-                        <div className="bg-slate-950/60 border border-primary/30 w-full py-1.5 rounded-lg text-sm font-bold font-display text-primary shadow-inner text-center flex justify-center gap-0.5">
-                          {guessA ? <>{guessA.home}<span className="text-slate-700">:</span>{guessA.away}</> : <span className="text-xs text-slate-600">-:-</span>}
-                        </div>
-                        {isPlayoffPhase(m?.phase) && guessA?.home === guessA?.away && guessA?.penalty_winner && (
-                          <div className="text-[8px] text-slate-400 mt-0.5 uppercase tracking-widest text-center">
-                            Pên: {guessA.penalty_winner === 'home' || String(guessA.penalty_winner) === String(m?.home_team?.id) ? m?.home_team?.short_code : m?.away_team?.short_code}
-                          </div>
-                        )}
-                        {m?.status === 'FINISHED' && guessA ? (
-                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold w-full text-center border ${getBadgeClass(guessA.color)}`}>
-                             +{guessA.pts || 0} PTS
-                           </span>
-                        ) : <span className="h-[22px]"></span>}
-                      </div>
-
-                      <div className="text-[9px] text-slate-600 font-bold uppercase w-2/12 text-center pb-5">VS</div>
-
-                      {/* PALPITE OPONENTE */}
-                      <div className="flex flex-col items-center space-y-1.5 w-5/12">
-                        <div className="h-6 flex items-center justify-center">{getWinnerBadge(guessB, m)}</div>
-                        <div className="bg-slate-950/60 border border-amber-500/30 w-full py-1.5 rounded-lg text-sm font-bold font-display text-amber-500 shadow-inner text-center flex justify-center gap-0.5">
-                          {guessB ? <>{guessB.home}<span className="text-slate-700">:</span>{guessB.away}</> : <span className="text-xs text-slate-600">-:-</span>}
-                        </div>
-                        {isPlayoffPhase(m?.phase) && guessB?.home === guessB?.away && guessB?.penalty_winner && (
-                          <div className="text-[8px] text-slate-400 mt-0.5 uppercase tracking-widest text-center">
-                            Pên: {guessB.penalty_winner === 'home' || String(guessB.penalty_winner) === String(m?.home_team?.id) ? m?.home_team?.short_code : m?.away_team?.short_code}
-                          </div>
-                        )}
-                        {m?.status === 'FINISHED' && guessB ? (
-                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold w-full text-center border ${getBadgeClass(guessB.color)}`}>
-                             +{guessB.pts || 0} PTS
-                           </span>
-                        ) : <span className="h-[22px]"></span>}
-                      </div>
-
-                    </div>
+                      return (
+                        <button
+                          key={dayGroup.dateKey}
+                          data-date={dayGroup.dateKey}
+                          onClick={() => scrollToDate(dayGroup.dateKey)}
+                          className={`py-1.5 px-3 text-[11px] sm:text-xs font-bold rounded-lg border transition-all flex-shrink-0 flex items-center gap-1.5 ${
+                            isSelected 
+                              ? 'bg-primary text-slate-900 border-primary shadow-md scale-105' 
+                              : 'bg-card border-border text-slate-400 hover:text-white hover:border-slate-500 hover:bg-white/5'
+                          }`}
+                        >
+                          <span>{isToday ? 'HOJE' : dayGroup.dateLabel}</span>
+                          <span className={`text-[8px] px-1.5 py-0.5 rounded-full ${
+                            isSelected ? 'bg-slate-900/20 text-slate-800' : 'bg-slate-900/50 text-slate-500'
+                          }`}>
+                            {matchCount}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
 
+                  {/* Botão Direita */}
+                  <button
+                    onClick={scrollRight}
+                    className="hidden sm:flex p-1.5 rounded-lg bg-card/50 border border-border hover:bg-card hover:border-slate-500 transition-colors flex-shrink-0"
+                    aria-label="Rolar para direita"
+                  >
+                    <ChevronRight size={16} className="text-slate-400" />
+                  </button>
+
+                  {/* Botão "Ver todas" - Mobile */}
+                  <button
+                    onClick={() => setShowAllDates(!showAllDates)}
+                    className="sm:hidden p-1.5 rounded-lg bg-primary/10 border border-primary/20 hover:bg-primary/20 transition-colors flex-shrink-0"
+                    aria-label={showAllDates ? 'Ocultar datas' : 'Ver todas as datas'}
+                  >
+                    <CalendarDays size={18} className="text-primary" />
+                  </button>
+                </div>
+
+                {/* Lista expandida de datas - Mobile */}
+                {showAllDates && (
+                  <div className="sm:hidden grid grid-cols-2 gap-1.5 p-2 bg-background/30 rounded-lg border border-border/50 animate-in slide-in-from-top-2">
+                    {datesArray.map((dayGroup: DayGroup) => {
+                      const isToday = dayGroup.dateKey === todayStr;
+                      const isSelected = selectedDate === dayGroup.dateKey;
+                      const matchCount = dayGroup.matches.length;
+                      
+                      return (
+                        <button
+                          key={dayGroup.dateKey}
+                          onClick={() => {
+                            scrollToDate(dayGroup.dateKey);
+                            setShowAllDates(false);
+                          }}
+                          className={`py-2 px-3 text-xs font-bold rounded-lg border transition-all flex items-center justify-between ${
+                            isSelected 
+                              ? 'bg-primary text-slate-900 border-primary' 
+                              : 'bg-card border-border text-slate-400 hover:text-white hover:border-slate-500 hover:bg-white/5'
+                          }`}
+                        >
+                          <span>{isToday ? '📅 HOJE' : dayGroup.dateLabel}</span>
+                          <span className={`text-[9px] px-2 py-0.5 rounded-full ${
+                            isSelected ? 'bg-slate-900/20 text-slate-800' : 'bg-slate-900/50 text-slate-500'
+                          }`}>
+                            {matchCount}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    
+                    {/* Botão fechar */}
+                    <button
+                      onClick={() => setShowAllDates(false)}
+                      className="col-span-2 py-1.5 text-xs text-slate-500 hover:text-white bg-card/30 rounded-lg border border-border/50 transition-colors"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                )}
+
+                {/* Indicador de scroll - Mobile (quando não está expandido) */}
+                {!showAllDates && datesArray.length > 4 && (
+                  <div className="sm:hidden flex items-center justify-between px-1">
+                    <span className="text-[8px] text-slate-600 animate-pulse flex items-center gap-1">
+                      <span>←</span> Deslize para ver mais datas <span>→</span>
+                    </span>
+                    <span className="text-[8px] text-slate-600 bg-slate-900/30 px-2 py-0.5 rounded-full">
+                      {datesArray.length} datas
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* CORPO PRINCIPAL */}
+          <div className="flex flex-col flex-1 overflow-hidden bg-background/5 min-h-0">
+            
+            {/* MESTRE: GRID DE JOGOS COMPACTO */}
+            <div className="p-3 sm:p-4 border-b border-border/40 overflow-y-auto max-h-[30vh] sm:max-h-[35vh] scrollbar-thin flex-shrink-0 bg-background/10">
+              {currentMatches.length === 0 ? (
+                <div className="text-center text-slate-500 text-sm py-4">Nenhum jogo nesta data.</div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
+                  {currentMatches.map((m: any) => {
+                    const isSelected = selectedMatchId === m.id;
+                    
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setSelectedMatchId(m.id)}
+                        className={`relative flex flex-col p-2.5 rounded-xl border transition-all hover:-translate-y-0.5 ${
+                          isSelected 
+                            ? 'bg-primary/10 border-primary shadow-sm' 
+                            : 'bg-card border-border hover:border-slate-500 opacity-90 hover:opacity-100'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center w-full mb-2 opacity-70">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">
+                            <Clock size={8} className="inline mr-1 -mt-0.5"/>{getTime(m.match_time)}
+                          </span>
+                          <span className="text-[8px] font-black uppercase bg-slate-900 px-1 rounded">
+                            {m.status === 'FINISHED' ? 'FT' : 'Agendado'}
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center justify-between w-full px-1">
+                          {m?.home_team?.logo_url ? 
+                            <img src={m.home_team.logo_url} className="w-6 h-6 object-contain" /> : 
+                            <div className="w-6"/>
+                          }
+                          <div className="text-xs font-black bg-slate-950/60 px-1.5 py-0.5 rounded border border-border/50 text-slate-300">
+                            {m.status === 'FINISHED' ? `${m.home_score}:${m.away_score}` : 'x'}
+                          </div>
+                          {m?.away_team?.logo_url ? 
+                            <img src={m.away_team.logo_url} className="w-6 h-6 object-contain" /> : 
+                            <div className="w-6"/>
+                          }
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* DETALHE: CONFRONTO 1x1 */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 scrollbar-thin relative min-h-0 flex items-center justify-center">
+              {!activeMatch ? (
+                <div className="flex flex-col items-center text-slate-500 gap-3 opacity-50">
+                  <Users size={40} />
+                  <p className="text-xs sm:text-sm font-bold uppercase tracking-wider">Selecione um jogo acima</p>
+                </div>
+              ) : (
+                <div className="w-full max-w-2xl animate-in slide-in-from-bottom-4 duration-300">
+                  {(() => {
+                    const m = activeMatch;
+                    const guessA = m?.palpites?.[userA?.id];
+                    const guessB = m?.palpites?.[userB?.id];
+
+                    return (
+                      <div className="bg-card border border-border/80 rounded-2xl p-4 sm:p-6 shadow-md flex flex-col items-center">
+                        
+                        {/* Título do Jogo Selecionado */}
+                        <div className="flex items-center justify-between w-full mb-6 pb-4 border-b border-border/40">
+                          <div className="flex items-center gap-3 w-1/3 justify-end">
+                            <span className="font-display font-bold text-sm sm:text-base text-slate-300 text-right">{m?.home_team?.name}</span>
+                            {m?.home_team?.logo_url && <img src={m.home_team.logo_url} className="w-6 h-6 sm:w-8 sm:h-8 object-contain" />}
+                          </div>
+                          
+                          <div className="flex flex-col items-center w-1/3">
+                            <span className="text-lg sm:text-xl font-black bg-slate-900 px-3 py-1 rounded-xl text-white border border-border/50">
+                              {m.status === 'FINISHED' ? `${m.home_score} : ${m.away_score}` : '- : -'}
+                            </span>
+                            <span className="text-[9px] font-bold uppercase tracking-widest mt-2 text-slate-500">
+                              {m.status === 'FINISHED' ? 'Finalizado' : 'Ao Vivo / Agendado'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-3 w-1/3 justify-start">
+                            {m?.away_team?.logo_url && <img src={m.away_team.logo_url} className="w-6 h-6 sm:w-8 sm:h-8 object-contain" />}
+                            <span className="font-display font-bold text-sm sm:text-base text-slate-300 text-left">{m?.away_team?.name}</span>
+                          </div>
+                        </div>
+
+                        {/* Lado a Lado dos Palpites */}
+                        <div className="flex items-start justify-center w-full max-w-lg mx-auto gap-4 sm:gap-10">
+                          
+                          {/* PALPITE VOCÊ */}
+                          <div className="flex flex-col items-center space-y-2.5 flex-1">
+                            <span className="text-[10px] text-primary font-bold uppercase tracking-widest">{userA?.name || 'Você'}</span>
+                            <div className="h-8 flex items-center justify-center">{getWinnerBadge(guessA, m)}</div>
+                            <div className="bg-slate-950/60 border border-primary/40 w-full py-2 sm:py-3 rounded-xl text-base sm:text-xl font-bold font-display text-primary shadow-inner text-center">
+                              {guessA ? `${guessA.home} : ${guessA.away}` : '- : -'}
+                            </div>
+                            {isPlayoffPhase(m?.phase) && guessA?.home === guessA?.away && guessA?.penalty_winner && (
+                              <div className="text-[9px] sm:text-[10px] text-slate-400 mt-1 uppercase tracking-widest text-center bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
+                                Pên: {guessA.penalty_winner === 'home' || String(guessA.penalty_winner) === String(m?.home_team?.id) ? m?.home_team?.short_code : m?.away_team?.short_code}
+                              </div>
+                            )}
+                            {m?.status === 'FINISHED' && guessA ? (
+                              <span className={`text-[10px] sm:text-xs px-2 py-1 rounded font-bold w-full text-center border ${getBadgeClass(guessA.color)}`}>
+                                +{guessA.pts || 0} PTS
+                              </span>
+                            ) : <span className="h-[28px]"></span>}
+                          </div>
+
+                          <div className="flex flex-col items-center pt-8">
+                            <span className="text-xs font-black text-slate-600 uppercase bg-background/50 px-2 py-1 rounded-full border border-border">VS</span>
+                          </div>
+
+                          {/* PALPITE OPONENTE */}
+                          <div className="flex flex-col items-center space-y-2.5 flex-1">
+                            <span className="text-[10px] text-amber-500 font-bold uppercase tracking-widest truncate max-w-[100px]">{userB?.name || 'Oponente'}</span>
+                            <div className="h-8 flex items-center justify-center">{getWinnerBadge(guessB, m)}</div>
+                            <div className="bg-slate-950/60 border border-amber-500/40 w-full py-2 sm:py-3 rounded-xl text-base sm:text-xl font-bold font-display text-amber-500 shadow-inner text-center">
+                              {guessB ? `${guessB.home} : ${guessB.away}` : '- : -'}
+                            </div>
+                            {isPlayoffPhase(m?.phase) && guessB?.home === guessB?.away && guessB?.penalty_winner && (
+                              <div className="text-[9px] sm:text-[10px] text-slate-400 mt-1 uppercase tracking-widest text-center bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
+                                Pên: {guessB.penalty_winner === 'home' || String(guessB.penalty_winner) === String(m?.home_team?.id) ? m?.home_team?.short_code : m?.away_team?.short_code}
+                              </div>
+                            )}
+                            {m?.status === 'FINISHED' && guessB ? (
+                              <span className={`text-[10px] sm:text-xs px-2 py-1 rounded font-bold w-full text-center border ${getBadgeClass(guessB.color)}`}>
+                                +{guessB.pts || 0} PTS
+                              </span>
+                            ) : <span className="h-[28px]"></span>}
+                          </div>
+
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
       </div>
-    </div>
+    </Portal>
   );
 }

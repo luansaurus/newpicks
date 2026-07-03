@@ -1,8 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { X, Minus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Minus, Users, Calendar, Clock, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { isPlayoffPhase } from '@/utils/leagueEngine';
+import { Portal } from '@/components/shared/Portal';
+
+interface DayGroup {
+  dateKey: string;
+  dateLabel: string;
+  rawDate: Date;
+  matches: any[];
+}
 
 const getFormattedDate = (dateString: string | Date) => {
   if (!dateString) return '';
@@ -18,178 +26,454 @@ const getFormattedDate = (dateString: string | Date) => {
   }
 };
 
+const getTime = (dateString: string | Date) => {
+  if (!dateString) return '';
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
+
 export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }: any) {
   const [activeTab, setActiveTab] = useState<'groups' | 'playoffs'>('groups');
   const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  const [showAllDates, setShowAllDates] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const todayStr = getFormattedDate(new Date());
+
+  useEffect(() => {
+    if (isOpen) {
+      const todayMatches = (matches || []).filter((m: any) => getFormattedDate(m.match_time) === todayStr);
+      if (todayMatches.length > 0) {
+        const hasPlayoff = todayMatches.some((m: any) => isPlayoffPhase(m.phase));
+        setActiveTab(hasPlayoff ? 'playoffs' : 'groups');
+      }
+    }
+  }, [isOpen, matches]);
 
   const phaseMatches = (matches || []).filter((m: any) => 
     activeTab === 'groups' ? !isPlayoffPhase(m?.phase) : isPlayoffPhase(m?.phase)
   );
 
-  const groupedByDate = phaseMatches.reduce((acc: any, m: any) => {
-    const dateKey = getFormattedDate(m?.match_time);
-    if (!dateKey) return acc;
-    if (!acc[dateKey]) acc[dateKey] = [];
-    acc[dateKey].push(m);
-    return acc;
-  }, {});
+  const groupedMatches = phaseMatches.reduce((groups: Record<string, DayGroup>, match: any) => {
+    const dateKey = getFormattedDate(match?.match_time);
+    if (!dateKey) return groups;
+    
+    if (!groups[dateKey]) {
+      const dateObj = new Date(match.match_time);
+      const weekday = dateObj.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+      const dayMonth = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      groups[dateKey] = {
+        dateKey,
+        dateLabel: `${weekday}, ${dayMonth}`,
+        rawDate: dateObj,
+        matches: []
+      };
+    }
+    groups[dateKey].matches.push(match);
+    return groups;
+  }, {} as Record<string, DayGroup>);
 
-  const datesArray = Object.keys(groupedByDate).sort((a, b) => {
-    const partsA = a.split('/');
-    const partsB = b.split('/');
-    if (partsA.length !== 3 || partsB.length !== 3) return 0;
-    return new Date(Number(partsA[2]), Number(partsA[1]) - 1, Number(partsA[0])).getTime() - 
-           new Date(Number(partsB[2]), Number(partsB[1]) - 1, Number(partsB[0])).getTime();
+  const sortedDays = (Object.values(groupedMatches) as DayGroup[]).sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
+
+  const daysDependency = sortedDays.map(d => d.dateKey).join(',');
+  useEffect(() => {
+    if (isOpen && sortedDays.length > 0) {
+      const dateExists = sortedDays.some(d => d.dateKey === selectedDate);
+      if (!dateExists) {
+        const hasToday = sortedDays.some(d => d.dateKey === todayStr);
+        setSelectedDate(hasToday ? todayStr : sortedDays[0].dateKey);
+      }
+    }
+  }, [isOpen, activeTab, daysDependency]);
+
+  const currentMatches = [...(groupedMatches[selectedDate]?.matches || [])].sort((a, b) => {
+    return new Date(a.match_time).getTime() - new Date(b.match_time).getTime();
   });
 
+  const matchesDependency = currentMatches.map(m => m.id).join(',');
   useEffect(() => {
-    if (isOpen && datesArray.length > 0) {
-      if (datesArray.includes(todayStr)) setSelectedDate(todayStr);
-      else setSelectedDate(datesArray[0]);
+    if (currentMatches.length > 0) {
+      const matchExists = currentMatches.some(m => m.id === selectedMatchId);
+      if (!matchExists) {
+        setSelectedMatchId(currentMatches[0].id);
+      }
+    } else {
+      setSelectedMatchId(null);
     }
-  }, [isOpen, activeTab]);
+  }, [selectedDate, matchesDependency]);
+
+  // Função para rolar para a data selecionada
+  const scrollToDate = (dateKey: string) => {
+    setSelectedDate(dateKey);
+    if (scrollContainerRef.current) {
+      const button = scrollContainerRef.current.querySelector(`[data-date="${dateKey}"]`);
+      if (button) {
+        button.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+  };
+
+  // Funções para navegação
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -200, behavior: 'smooth' });
+    }
+  };
+
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 200, behavior: 'smooth' });
+    }
+  };
 
   if (!isOpen) return null;
-
-  const currentMatches = groupedByDate[selectedDate] || [];
 
   const usersList = targetUser?.id === 'ALL' && rankingUsers 
     ? rankingUsers.map((u: any) => u?.id).filter(Boolean)
     : [targetUser?.id].filter(Boolean);
 
+  const activeMatch = currentMatches.find(m => m.id === selectedMatchId);
+
   const getWinnerBadge = (guess: any, match: any) => {
     if (!guess) return <Minus size={14} className="text-slate-600" />;
-    if (guess.home > guess.away) {
-      return <img src={match?.home_team?.logo_url || ''} className="w-8 h-8 object-contain inline-block drop-shadow-md" title={`Vitória: ${match?.home_team?.name || ''}`} />;
-    }
-    if (guess.away > guess.home) {
-      return <img src={match?.away_team?.logo_url || ''} className="w-8 h-8 object-contain inline-block drop-shadow-md" title={`Vitória: ${match?.away_team?.name || ''}`} />;
-    }
+    if (guess.home > guess.away) return <img src={match?.home_team?.logo_url || ''} className="w-5 h-5 object-contain inline-block drop-shadow-md" />;
+    if (guess.away > guess.home) return <img src={match?.away_team?.logo_url || ''} className="w-5 h-5 object-contain inline-block drop-shadow-md" />;
     
     if (isPlayoffPhase(match?.phase) && guess.penalty_winner) {
       const isHomePen = guess.penalty_winner === 'home' || String(guess.penalty_winner) === String(match?.home_team?.id);
       const penTeam = isHomePen ? match?.home_team : match?.away_team;
       return (
-        <div className="relative flex items-center justify-center" title={`Vencedor Pênaltis: ${penTeam?.name || ''}`}>
-          {penTeam?.logo_url && <img src={penTeam.logo_url} className="w-8 h-8 object-contain inline-block drop-shadow-md opacity-90" />}
+        <div className="relative flex items-center justify-center">
+          {penTeam?.logo_url && <img src={penTeam.logo_url} className="w-5 h-5 object-contain inline-block drop-shadow-md opacity-90" />}
           <div className="absolute -bottom-1 -right-2 bg-slate-900 text-[8px] font-black px-0.5 rounded text-yellow-500 border border-slate-700">P</div>
         </div>
       );
     }
-    
-    return <div className="text-[10px] font-black bg-slate-900 px-1.5 rounded text-yellow-500 border border-slate-700 shadow-sm" title="Empate">X</div>;
+    return <div className="text-[10px] font-black bg-slate-900 px-1.5 rounded text-yellow-500 border border-slate-700 shadow-sm">X</div>;
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-card w-full max-w-5xl max-h-[90vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl border border-border">
-        
-        <div className="p-5 border-b border-border flex justify-between items-center bg-background/50">
-          <div>
-            <h2 className="font-display font-bold text-lg uppercase tracking-tight">Painel do Espiador</h2>
-            <p className="text-xs text-slate-400">Modo de Visualização: <span className="text-primary font-bold">{targetUser?.name || 'Geral'}</span></p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 hover:bg-white/5 rounded-lg"><X size={20} /></button>
-        </div>
-
-        <div className="flex border-b border-border bg-background/30">
-          <button onClick={() => { setActiveTab('groups'); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'groups' ? 'border-b-2 border-primary text-white bg-primary/5' : 'text-slate-400 hover:text-slate-300'}`}>Fase de Grupos</button>
-          <button onClick={() => { setActiveTab('playoffs'); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'playoffs' ? 'border-b-2 border-primary text-white bg-primary/5' : 'text-slate-400 hover:text-slate-300'}`}>Fases Eliminatórias</button>
-        </div>
-
-        <div className="p-4 bg-background/20 border-b border-border/40 max-h-36 overflow-y-auto scrollbar-thin">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Selecione o Dia:</span>
-          {datesArray.length === 0 ? (
-            <p className="text-xs text-slate-500 text-center py-2">Nenhuma data cadastrada nesta fase.</p>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-              {datesArray.map(date => (
-                <button
-                  key={date}
-                  onClick={() => setSelectedDate(date)}
-                  className={`py-2 px-3 text-xs font-bold rounded-lg border transition-all truncate ${selectedDate === date ? 'bg-primary text-slate-900 border-primary shadow-md scale-[1.02]' : 'bg-card border-border text-slate-400 hover:text-white hover:border-slate-600'}`}
-                >
-                  {date === todayStr ? 'HOJE 📅' : date}
-                </button>
-              ))}
+    <Portal>
+      <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-3 sm:p-6 animate-in fade-in">
+        <div className="bg-card w-full max-w-6xl max-h-[90vh] sm:max-h-[85vh] rounded-xl sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl border border-border relative">
+          
+          {/* CABEÇALHO FIXO COM STICKY */}
+          <div className="p-3 sm:p-4 border-b border-border flex justify-between items-center bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 flex-shrink-0">
+            <div>
+              <h2 className="font-display font-bold text-base sm:text-lg uppercase tracking-tight leading-tight">Espião de Palpites</h2>
+              <p className="text-[10px] sm:text-xs text-slate-400">Alvo: <span className="text-primary font-bold">{targetUser?.name || 'Geral da Liga'}</span></p>
             </div>
-          )}
-        </div>
+            <button onClick={onClose} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-colors bg-white/5">
+              <X size={24} />
+            </button>
+          </div>
 
-        <div className="p-5 overflow-y-auto flex-1 bg-background/10 space-y-10 scrollbar-thin">
-          {currentMatches.length === 0 ? (
-            <div className="text-center text-slate-500 py-10 text-sm">Nenhum confronto agendado para o dia selecionado.</div>
-          ) : (
-            currentMatches.map((m: any) => (
-              <div key={m?.id || Math.random()} className="bg-card border border-border/80 rounded-2xl p-4 shadow-sm space-y-4">
-                
-                <div className="flex flex-col items-center justify-center border-b border-border/40 pb-4 bg-background/30 p-3 rounded-xl gap-2">
-                  <div className="flex items-center gap-3 font-display text-lg md:text-xl text-slate-300">
-                    <span className="font-bold truncate max-w-[120px] text-right">{m?.home_team?.logo_url ? <img src={m?.home_team?.logo_url} alt={m?.home_team?.name} className="w-8 h-8 object-contain" /> : 'Time A'}</span>
-                    <div className="flex items-center gap-1 font-bold font-display text-lg bg-slate-950/60 px-2 py-0.5 rounded border border-border">
-                          <span className={m?.status === 'FINISHED' ? 'text-green-400' : 'text-white'}>{m?.status === 'FINISHED' ? (m?.home_score ?? '-') : '-'}</span>
-                          <span className="text-slate-600 text-sm">:</span>
-                          <span className={m?.status === 'FINISHED' ? 'text-green-400' : 'text-white'}>{m?.status === 'FINISHED' ? (m?.away_score ?? '-') : '-'}</span>
-                        </div>
-                    <span className="font-bold truncate max-w-[120px] text-left">{m?.away_team?.logo_url ? <img src={m?.away_team?.logo_url} alt={m?.away_team?.name} className="w-8 h-8 object-contain" /> : 'Time B'}</span>
+          {/* ABAS: GRUPOS / MATA-MATA */}
+          <div className="flex border-b border-border bg-background/30 flex-shrink-0">
+            <button 
+              onClick={() => setActiveTab('groups')} 
+              className={`flex-1 py-2.5 sm:py-3 text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-colors ${
+                activeTab === 'groups' 
+                  ? 'border-b-2 border-primary text-white bg-primary/5' 
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Grupos
+            </button>
+            <button 
+              onClick={() => setActiveTab('playoffs')} 
+              className={`flex-1 py-2.5 sm:py-3 text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-colors ${
+                activeTab === 'playoffs' 
+                  ? 'border-b-2 border-primary text-white bg-primary/5' 
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Mata-Mata
+            </button>
+          </div>
+
+          {/* SELETOR DE DATAS - VERSÃO COM BOTÕES E CONTROLES */}
+          <div className="p-2 sm:p-3 bg-background/20 border-b border-border/40 flex-shrink-0">
+            {sortedDays.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-1">Nenhuma data cadastrada.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {/* Desktop e Mobile: Container com controles */}
+                <div className="flex items-center gap-2">
+                  {/* Botão Esquerda */}
+                  <button
+                    onClick={scrollLeft}
+                    className="hidden sm:flex p-1.5 rounded-lg bg-card/50 border border-border hover:bg-card hover:border-slate-500 transition-colors flex-shrink-0"
+                    aria-label="Rolar para esquerda"
+                  >
+                    <ChevronLeft size={16} className="text-slate-400" />
+                  </button>
+
+                  {/* Container de Scroll */}
+                  <div 
+                    ref={scrollContainerRef}
+                    className="flex items-center gap-2 overflow-x-auto scrollbar-thin flex-1 py-1"
+                    style={{ scrollbarWidth: 'thin' }}
+                  >
+                    <Calendar size={14} className="text-slate-500 flex-shrink-0 hidden sm:block" />
+                    
+                    {sortedDays.map((dayGroup: DayGroup) => {
+                      const isToday = dayGroup.dateKey === todayStr;
+                      const isSelected = selectedDate === dayGroup.dateKey;
+                      const matchCount = dayGroup.matches.length;
+                      
+                      return (
+                        <button
+                          key={dayGroup.dateKey}
+                          data-date={dayGroup.dateKey}
+                          onClick={() => scrollToDate(dayGroup.dateKey)}
+                          className={`py-1.5 px-3 text-[11px] sm:text-xs font-bold rounded-lg border transition-all flex-shrink-0 flex items-center gap-1.5 ${
+                            isSelected 
+                              ? 'bg-primary text-slate-900 border-primary shadow-md scale-105' 
+                              : 'bg-card border-border text-slate-400 hover:text-white hover:border-slate-500 hover:bg-white/5'
+                          }`}
+                        >
+                          <span>{isToday ? 'HOJE' : dayGroup.dateLabel}</span>
+                          <span className={`text-[8px] px-1.5 py-0.5 rounded-full ${
+                            isSelected ? 'bg-slate-900/20 text-slate-800' : 'bg-slate-900/50 text-slate-500'
+                          }`}>
+                            {matchCount}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-900 border border-border px-2 py-0.5 rounded-full">
-                    {m?.status === 'FINISHED' ? 'Encerrado' : m?.status === 'IN_PLAY' ? 'Ao Vivo' : 'Agendado'}
-                  </span>
+
+                  {/* Botão Direita */}
+                  <button
+                    onClick={scrollRight}
+                    className="hidden sm:flex p-1.5 rounded-lg bg-card/50 border border-border hover:bg-card hover:border-slate-500 transition-colors flex-shrink-0"
+                    aria-label="Rolar para direita"
+                  >
+                    <ChevronRight size={16} className="text-slate-400" />
+                  </button>
+
+                  {/* Botão "Ver todas" - Mobile */}
+                  <button
+                    onClick={() => setShowAllDates(!showAllDates)}
+                    className="sm:hidden p-1.5 rounded-lg bg-primary/10 border border-primary/20 hover:bg-primary/20 transition-colors flex-shrink-0"
+                    aria-label={showAllDates ? 'Ocultar datas' : 'Ver todas as datas'}
+                  >
+                    <CalendarDays size={18} className="text-primary" />
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pt-1">
-                  {usersList.map((uid: string) => {
-                    const guess = m?.palpites?.[uid];
-                    if (!guess) return null;
-                    const fallbackName = rankingUsers?.find((u:any) => u?.id === uid)?.name || 'Membro';
+                {/* Lista expandida de datas - Mobile */}
+                {showAllDates && (
+                  <div className="sm:hidden grid grid-cols-2 gap-1.5 p-2 bg-background/30 rounded-lg border border-border/50 animate-in slide-in-from-top-2">
+                    {sortedDays.map((dayGroup: DayGroup) => {
+                      const isToday = dayGroup.dateKey === todayStr;
+                      const isSelected = selectedDate === dayGroup.dateKey;
+                      const matchCount = dayGroup.matches.length;
+                      
+                      return (
+                        <button
+                          key={dayGroup.dateKey}
+                          onClick={() => {
+                            scrollToDate(dayGroup.dateKey);
+                            setShowAllDates(false);
+                          }}
+                          className={`py-2 px-3 text-xs font-bold rounded-lg border transition-all flex items-center justify-between ${
+                            isSelected 
+                              ? 'bg-primary text-slate-900 border-primary' 
+                              : 'bg-card border-border text-slate-400 hover:text-white hover:border-slate-500 hover:bg-white/5'
+                          }`}
+                        >
+                          <span>{isToday ? '📅 HOJE' : dayGroup.dateLabel}</span>
+                          <span className={`text-[9px] px-2 py-0.5 rounded-full ${
+                            isSelected ? 'bg-slate-900/20 text-slate-800' : 'bg-slate-900/50 text-slate-500'
+                          }`}>
+                            {matchCount}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    
+                    {/* Botão fechar */}
+                    <button
+                      onClick={() => setShowAllDates(false)}
+                      className="col-span-2 py-1.5 text-xs text-slate-500 hover:text-white bg-card/30 rounded-lg border border-border/50 transition-colors"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                )}
+
+                {/* Indicador de scroll - Mobile (quando não está expandido) */}
+                {!showAllDates && sortedDays.length > 4 && (
+                  <div className="sm:hidden flex items-center justify-between px-1">
+                    <span className="text-[8px] text-slate-600 animate-pulse flex items-center gap-1">
+                      <span>←</span> Deslize para ver mais datas <span>→</span>
+                    </span>
+                    <span className="text-[8px] text-slate-600 bg-slate-900/30 px-2 py-0.5 rounded-full">
+                      {sortedDays.length} datas
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* CORPO PRINCIPAL */}
+          <div className="flex flex-col flex-1 overflow-hidden bg-background/5 min-h-0">
+            
+            {/* MESTRE: GRID DE JOGOS COMPACTO */}
+            <div className="p-3 sm:p-4 border-b border-border/40 overflow-y-auto max-h-[30vh] sm:max-h-[35vh] scrollbar-thin flex-shrink-0 bg-background/10">
+              {currentMatches.length === 0 ? (
+                <div className="text-center text-slate-500 text-sm py-4">Nenhum confronto neste dia.</div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
+                  {currentMatches.map((m: any) => {
+                    const isSelected = selectedMatchId === m.id;
+                    
+                    let hV=0, dV=0, aV=0;
+                    usersList.forEach((uid: string) => {
+                      const guess = m.palpites?.[uid];
+                      if (guess) {
+                        if (guess.home > guess.away) hV++; 
+                        else if (guess.away > guess.home) aV++; 
+                        else dV++;
+                      }
+                    });
 
                     return (
-                      <div key={uid} className="bg-background/40 border border-border/50 p-3 rounded-xl flex flex-col items-center relative overflow-hidden group hover:border-slate-600 transition-colors">
-                        <div className="mb-2 h-6 flex items-center justify-center">{getWinnerBadge(guess, m)}</div>
-
-                        <span className="text-[11px] font-bold text-slate-300 truncate w-full text-center pb-2">
-                          {guess?.name || fallbackName}
-                        </span>
-                        
-                        <div className="flex flex-col items-center w-full">
-                          <div className="bg-slate-950/40 border border-border/60 w-full py-1.5 rounded-lg flex items-center justify-center gap-1.5 font-display font-bold text-base shadow-sm">
-                            <span className="text-white">{guess.home ?? '-'}</span>
-                            <span className="text-slate-700">:</span>
-                            <span className="text-white">{guess.away ?? '-'}</span>
-                          </div>
-
-                          
-                          {m?.status === 'FINISHED' && (
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider mt-2 w-full text-center ${
-                              guess.color === 'GREEN' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
-                              guess.color === 'BLUE' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                              guess.color === 'YELLOW' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'
-                            }`}>
-                              +{guess.pts || 0} pts
-                            </span>
-                            
-                          )}
-                          {isPlayoffPhase(m?.phase) && guess.home === guess.away && guess.penalty_winner && (
-                            <div className="text-[8px] text-slate-400 mt-1 uppercase tracking-widest text-center">
-                              Pên: {guess.penalty_winner === 'home' || String(guess.penalty_winner) === String(m?.home_team?.id) ? m?.home_team?.short_code : m?.away_team?.short_code}
-                            </div>
-                          )}
-
+                      <button
+                        key={m.id}
+                        onClick={() => setSelectedMatchId(m.id)}
+                        className={`relative flex flex-col p-2.5 rounded-xl border transition-all hover:-translate-y-0.5 ${
+                          isSelected 
+                            ? 'bg-primary/10 border-primary shadow-sm' 
+                            : 'bg-card border-border hover:border-slate-500 opacity-90 hover:opacity-100'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center w-full mb-2 opacity-70">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">
+                            <Clock size={8} className="inline mr-1 -mt-0.5"/>{getTime(m.match_time)}
+                          </span>
+                          <span className="text-[8px] font-black uppercase bg-slate-900 px-1 rounded">
+                            {m.status === 'FINISHED' ? 'FT' : 'Agendado'}
+                          </span>
                         </div>
-                      </div>
+                        
+                        <div className="flex items-center justify-between w-full mb-2 px-1">
+                          {m?.home_team?.logo_url ? 
+                            <img src={m.home_team.logo_url} className="w-6 h-6 object-contain" /> : 
+                            <div className="w-6"/>
+                          }
+                          <div className="text-xs font-black bg-slate-950/60 px-1.5 py-0.5 rounded border border-border/50 text-slate-300">
+                            {m.status === 'FINISHED' ? `${m.home_score}:${m.away_score}` : 'x'}
+                          </div>
+                          {m?.away_team?.logo_url ? 
+                            <img src={m.away_team.logo_url} className="w-6 h-6 object-contain" /> : 
+                            <div className="w-6"/>
+                          }
+                        </div>
+
+                        <div className="w-full flex justify-between px-1 text-[9px] font-bold">
+                          <span className="text-primary">{hV}</span>
+                          <span className="text-slate-500">{dV}</span>
+                          <span className="text-amber-500">{aV}</span>
+                        </div>
+                      </button>
                     );
                   })}
                 </div>
+              )}
+            </div>
 
-              </div>
-            ))
-          )}
+            {/* DETALHE: GRID DOS JOGADORES NA PARTIDA SELECIONADA */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-5 scrollbar-thin relative min-h-0">
+              {!activeMatch ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-3 opacity-50">
+                  <Users size={40} />
+                  <p className="text-xs sm:text-sm font-bold uppercase tracking-wider text-center">Selecione um jogo acima</p>
+                </div>
+              ) : (
+                <div className="animate-in fade-in duration-300">
+                  
+                  <div className="flex flex-col items-center mb-5 bg-background/50 border border-border/50 rounded-xl py-3 shadow-inner">
+                    <div className="flex items-center gap-3 sm:gap-6">
+                      <div className="flex items-center gap-2">
+                        <span className="font-display font-bold text-sm sm:text-lg text-slate-300 truncate max-w-[80px] sm:max-w-none text-right">
+                          {activeMatch?.home_team?.short_code}
+                        </span>
+                      </div>
+                      <span className="text-base sm:text-xl font-black bg-slate-900 px-3 py-1 rounded-xl text-white border border-border">
+                        {activeMatch.status === 'FINISHED' ? `${activeMatch.home_score} : ${activeMatch.away_score}` : '- : -'}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-display font-bold text-sm sm:text-lg text-slate-300 truncate max-w-[80px] sm:max-w-none text-left">
+                          {activeMatch?.away_team?.short_code}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3">
+                    {usersList.map((uid: string) => {
+                      const guess = activeMatch.palpites?.[uid];
+                      if (!guess) return null;
+                      const fallbackName = rankingUsers?.find((u:any) => u?.id === uid)?.name || 'Membro';
+
+                      return (
+                        <div key={uid} className="bg-card border border-border/80 p-2 sm:p-3 rounded-xl flex flex-col items-center relative overflow-hidden shadow-sm">
+                          <div className="mb-1 sm:mb-2 h-5 flex items-center justify-center">
+                            {getWinnerBadge(guess, activeMatch)}
+                          </div>
+
+                          <span className="text-[10px] sm:text-[11px] font-bold text-slate-300 truncate w-full text-center pb-1 sm:pb-2">
+                            {guess?.name || fallbackName}
+                          </span>
+                          
+                          <div className="flex flex-col items-center w-full">
+                            <div className="bg-background/80 border border-border/60 w-full py-1.5 sm:py-2 rounded-lg flex items-center justify-center gap-1 font-display font-bold text-xs sm:text-sm shadow-inner">
+                              <span className="text-white">{guess.home ?? '-'}</span>
+                              <span className="text-slate-600">:</span>
+                              <span className="text-white">{guess.away ?? '-'}</span>
+                            </div>
+
+                            {isPlayoffPhase(activeMatch?.phase) && guess.home === guess.away && guess.penalty_winner && (
+                              <div className="text-[7px] sm:text-[8px] text-slate-400 mt-1 uppercase tracking-widest text-center bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                                Pên: {guess.penalty_winner === 'home' || String(guess.penalty_winner) === String(activeMatch?.home_team?.id) 
+                                  ? activeMatch?.home_team?.short_code 
+                                  : activeMatch?.away_team?.short_code}
+                              </div>
+                            )}
+
+                            {activeMatch?.status === 'FINISHED' && (
+                              <span className={`text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider mt-1.5 w-full text-center ${
+                                guess.color === 'GREEN' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                                guess.color === 'BLUE' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                guess.color === 'YELLOW' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 
+                                'bg-red-500/10 text-red-400 border-red-500/20'
+                              }`}>
+                                +{guess.pts || 0} pts
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                </div>
+              )}
+            </div>
+
+          </div>
         </div>
-
       </div>
-    </div>
+    </Portal>
   );
 }
