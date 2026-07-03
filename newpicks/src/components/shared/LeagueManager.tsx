@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { useTheme } from '@/context/ThemeContext';
 import { useLeague } from '@/context/LeagueContext';
-import { Users, Lock, Globe, Plus, Settings, X, Save, Trophy, CheckCircle2, LogIn, Loader2 } from 'lucide-react';
+import { Users, Lock, Globe, Plus, Settings, X, Save, Trophy, CheckCircle2, LogIn, Loader2, Trash2 } from 'lucide-react';
 
 interface LeagueManagerProps {
   competitionId: number;
@@ -22,6 +22,8 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingLeague, setEditingLeague] = useState<any | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Usamos strings para os números para evitar o bug do zero preso no input
   const [formData, setFormData] = useState({
@@ -65,6 +67,7 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
   const openCreateModal = () => {
     setEditingLeague(null);
     setFormData({ name: '', is_private: false, password: '', rule_exact_score: '5', enable_exact: true, rule_goal_diff: '3', enable_diff: true, rule_winner: '2', enable_winner: true, playoff_multiplier: '2.0' });
+    setShowDeleteConfirm(false);
     setIsModalOpen(true);
   };
 
@@ -77,6 +80,7 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
       rule_winner: league.rule_winner?.toString() || '2', enable_winner: league.rule_winner > 0,
       playoff_multiplier: league.playoff_multiplier?.toString() || '1.0'
     });
+    setShowDeleteConfirm(false);
     setIsModalOpen(true);
   };
 
@@ -103,6 +107,42 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
     setIsModalOpen(false);
     setActiveTab('my');
     fetchLeagues();
+  };
+
+  const handleDeleteLeague = async () => {
+    if (!editingLeague) return;
+    
+    setDeleting(true);
+    try {
+      // Primeiro, remove todos os membros da liga
+      await supabase
+        .from('league_members')
+        .delete()
+        .eq('league_id', editingLeague.id);
+
+      // Depois, remove a liga
+      const { error } = await supabase
+        .from('leagues')
+        .delete()
+        .eq('id', editingLeague.id);
+
+      if (error) throw error;
+
+      // Se a liga deletada era a ativa, limpa o contexto
+      if (activeLeague?.id === editingLeague.id) {
+        selectLeague(null);
+      }
+
+      setIsModalOpen(false);
+      setShowDeleteConfirm(false);
+      setActiveTab('my');
+      fetchLeagues();
+    } catch (error) {
+      console.error('Erro ao deletar liga:', error);
+      alert('Erro ao deletar liga. Tente novamente.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const previewColors = (() => {
@@ -193,61 +233,114 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
           <div className="bg-card border border-border rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div className="p-5 border-b border-border flex justify-between items-center bg-background/50">
               <h2 className="font-display font-bold text-lg uppercase tracking-tight">{editingLeague ? 'Editar Liga' : 'Nova Liga'}</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
+              <button onClick={() => {
+                setIsModalOpen(false);
+                setShowDeleteConfirm(false);
+              }} className="text-slate-400 hover:text-white"><X size={20}/></button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6">
-              <div className="space-y-4">
+            {showDeleteConfirm && editingLeague ? (
+              // Tela de confirmação de exclusão
+              <div className="p-6 flex flex-col items-center text-center space-y-6">
+                <div className="p-4 bg-red-500/10 rounded-full">
+                  <Trash2 size={48} className="text-red-500" />
+                </div>
                 <div>
-                  <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Nome da Liga</label>
-                  <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-background border border-border rounded-lg p-3 text-sm focus:border-primary outline-none" placeholder="Ex: Firma do TI, Família Silva..." />
+                  <h3 className="text-lg font-bold text-white">Excluir Liga?</h3>
+                  <p className="text-sm text-slate-400 mt-2">
+                    Tem certeza que deseja excluir a liga <span className="text-white font-bold">"{editingLeague.name}"</span>?
+                    <br />
+                    <span className="text-red-400">Esta ação é irreversível</span> e todos os membros serão removidos.
+                  </p>
                 </div>
-                <div className="flex items-center justify-between p-4 bg-background/50 rounded-lg border border-border">
-                  <div><h4 className="font-bold text-sm">Liga Privada?</h4><p className="text-xs text-slate-500">Exigir senha para entrar</p></div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={formData.is_private} onChange={e => setFormData({...formData, is_private: e.target.checked})} />
-                    <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-                  </label>
-                </div>
-                {formData.is_private && (
-                  <div className="animate-in fade-in slide-in-from-top-2">
-                    <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Senha da Liga</label>
-                    <input type="text" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-background border border-border rounded-lg p-3 text-sm focus:border-primary outline-none" />
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-4 pt-4 border-t border-border">
-                <h3 className="font-bold text-sm uppercase tracking-tight text-slate-300 mb-4">Regras de Pontuação</h3>
-                <div className="flex items-center gap-4">
-                  <input type="checkbox" checked={formData.enable_exact} onChange={e => setFormData({...formData, enable_exact: e.target.checked})} className="w-5 h-5 accent-primary rounded" />
-                  <div className="flex-1"><p className="font-bold text-sm">Cravou o Placar</p></div>
-                  <input type="text" disabled={!formData.enable_exact} value={formData.rule_exact_score} onChange={e => setFormData({...formData, rule_exact_score: e.target.value})} className={`w-16 p-2 bg-background border rounded-lg text-center font-bold outline-none ${previewColors[Number(formData.rule_exact_score)] || 'border-border'}`} />
-                </div>
-                <div className="flex items-center gap-4">
-                  <input type="checkbox" checked={formData.enable_diff} onChange={e => setFormData({...formData, enable_diff: e.target.checked})} className="w-5 h-5 accent-primary rounded" />
-                  <div className="flex-1"><p className="font-bold text-sm">Acertou Vencedor + Saldo</p></div>
-                  <input type="text" disabled={!formData.enable_diff} value={formData.rule_goal_diff} onChange={e => setFormData({...formData, rule_goal_diff: e.target.value})} className={`w-16 p-2 bg-background border rounded-lg text-center font-bold outline-none ${previewColors[Number(formData.rule_goal_diff)] || 'border-border'}`} />
-                </div>
-                <div className="flex items-center gap-4">
-                  <input type="checkbox" checked={formData.enable_winner} onChange={e => setFormData({...formData, enable_winner: e.target.checked})} className="w-5 h-5 accent-primary rounded" />
-                  <div className="flex-1"><p className="font-bold text-sm">Apenas Vencedor</p></div>
-                  <input type="text" disabled={!formData.enable_winner} value={formData.rule_winner} onChange={e => setFormData({...formData, rule_winner: e.target.value})} className={`w-16 p-2 bg-background border rounded-lg text-center font-bold outline-none ${previewColors[Number(formData.rule_winner)] || 'border-border'}`} />
-                </div>
-                <div className="pt-4 border-t border-border flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4 flex-1">
-                    <input type="checkbox" checked={Number(formData.playoff_multiplier) > 1} onChange={e => setFormData({...formData, playoff_multiplier: e.target.checked ? '2.0' : '1.0'})} className="w-5 h-5 accent-primary rounded" />
-                    <div><h4 className="font-bold text-sm">Multiplicador Mata-Mata</h4><p className="text-[10px] text-slate-500 uppercase">Pontos valem mais</p></div>
-                  </div>
-                  <input type="text" disabled={Number(formData.playoff_multiplier) <= 1} value={Number(formData.playoff_multiplier) <= 1 ? '' : formData.playoff_multiplier} onChange={e => setFormData({...formData, playoff_multiplier: e.target.value})} className="w-16 p-2 bg-background border border-border rounded-lg text-center font-bold text-primary outline-none disabled:opacity-30" placeholder="1x" />
+                <div className="flex gap-3 w-full">
+                  <button 
+                    onClick={() => setShowDeleteConfirm(false)} 
+                    className="flex-1 px-4 py-2 font-bold text-sm text-slate-400 hover:text-white border border-border rounded-lg hover:bg-white/5 transition-colors"
+                    disabled={deleting}
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={handleDeleteLeague} 
+                    className="flex-1 px-4 py-2 font-bold text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center justify-center gap-2"
+                    disabled={deleting}
+                  >
+                    {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                    {deleting ? 'Excluindo...' : 'Excluir'}
+                  </button>
                 </div>
               </div>
-            </div>
+            ) : (
+              // Formulário normal
+              <>
+                <div className="p-6 overflow-y-auto space-y-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Nome da Liga</label>
+                      <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-background border border-border rounded-lg p-3 text-sm focus:border-primary outline-none" placeholder="Ex: Firma do TI, Família Silva..." />
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-background/50 rounded-lg border border-border">
+                      <div><h4 className="font-bold text-sm">Liga Privada?</h4><p className="text-xs text-slate-500">Exigir senha para entrar</p></div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" checked={formData.is_private} onChange={e => setFormData({...formData, is_private: e.target.checked})} />
+                        <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                      </label>
+                    </div>
+                    {formData.is_private && (
+                      <div className="animate-in fade-in slide-in-from-top-2">
+                        <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Senha da Liga</label>
+                        <input type="text" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-background border border-border rounded-lg p-3 text-sm focus:border-primary outline-none" />
+                      </div>
+                    )}
+                  </div>
 
-            <div className="p-5 border-t border-border bg-background/50 flex justify-end gap-3">
-              <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 font-bold text-sm text-slate-400 hover:text-white">Cancelar</button>
-              <button onClick={handleSaveLeague} disabled={!formData.name} className="px-6 py-2 font-bold text-sm bg-primary text-slate-900 rounded-lg hover:brightness-110 flex items-center gap-2" style={{ backgroundColor: themeColor }}><Save size={16} /> Salvar</button>
-            </div>
+                  <div className="space-y-4 pt-4 border-t border-border">
+                    <h3 className="font-bold text-sm uppercase tracking-tight text-slate-300 mb-4">Regras de Pontuação</h3>
+                    <div className="flex items-center gap-4">
+                      <input type="checkbox" checked={formData.enable_exact} onChange={e => setFormData({...formData, enable_exact: e.target.checked})} className="w-5 h-5 accent-primary rounded" />
+                      <div className="flex-1"><p className="font-bold text-sm">Cravou o Placar</p></div>
+                      <input type="text" disabled={!formData.enable_exact} value={formData.rule_exact_score} onChange={e => setFormData({...formData, rule_exact_score: e.target.value})} className={`w-16 p-2 bg-background border rounded-lg text-center font-bold outline-none ${previewColors[Number(formData.rule_exact_score)] || 'border-border'}`} />
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <input type="checkbox" checked={formData.enable_diff} onChange={e => setFormData({...formData, enable_diff: e.target.checked})} className="w-5 h-5 accent-primary rounded" />
+                      <div className="flex-1"><p className="font-bold text-sm">Acertou Vencedor + Saldo</p></div>
+                      <input type="text" disabled={!formData.enable_diff} value={formData.rule_goal_diff} onChange={e => setFormData({...formData, rule_goal_diff: e.target.value})} className={`w-16 p-2 bg-background border rounded-lg text-center font-bold outline-none ${previewColors[Number(formData.rule_goal_diff)] || 'border-border'}`} />
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <input type="checkbox" checked={formData.enable_winner} onChange={e => setFormData({...formData, enable_winner: e.target.checked})} className="w-5 h-5 accent-primary rounded" />
+                      <div className="flex-1"><p className="font-bold text-sm">Apenas Vencedor</p></div>
+                      <input type="text" disabled={!formData.enable_winner} value={formData.rule_winner} onChange={e => setFormData({...formData, rule_winner: e.target.value})} className={`w-16 p-2 bg-background border rounded-lg text-center font-bold outline-none ${previewColors[Number(formData.rule_winner)] || 'border-border'}`} />
+                    </div>
+                    <div className="pt-4 border-t border-border flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4 flex-1">
+                        <input type="checkbox" checked={Number(formData.playoff_multiplier) > 1} onChange={e => setFormData({...formData, playoff_multiplier: e.target.checked ? '2.0' : '1.0'})} className="w-5 h-5 accent-primary rounded" />
+                        <div><h4 className="font-bold text-sm">Multiplicador Mata-Mata</h4><p className="text-[10px] text-slate-500 uppercase">Pontos valem mais</p></div>
+                      </div>
+                      <input type="text" disabled={Number(formData.playoff_multiplier) <= 1} value={Number(formData.playoff_multiplier) <= 1 ? '' : formData.playoff_multiplier} onChange={e => setFormData({...formData, playoff_multiplier: e.target.value})} className="w-16 p-2 bg-background border border-border rounded-lg text-center font-bold text-primary outline-none disabled:opacity-30" placeholder="1x" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-5 border-t border-border bg-background/50 flex justify-between items-center">
+                  {editingLeague && (
+                    <button 
+                      onClick={() => setShowDeleteConfirm(true)} 
+                      className="px-4 py-2 font-bold text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <Trash2 size={16} /> Excluir Liga
+                    </button>
+                  )}
+                  <div className="flex gap-3 ml-auto">
+                    <button onClick={() => {
+                      setIsModalOpen(false);
+                      setShowDeleteConfirm(false);
+                    }} className="px-4 py-2 font-bold text-sm text-slate-400 hover:text-white">Cancelar</button>
+                    <button onClick={handleSaveLeague} disabled={!formData.name} className="px-6 py-2 font-bold text-sm bg-primary text-slate-900 rounded-lg hover:brightness-110 flex items-center gap-2" style={{ backgroundColor: themeColor }}><Save size={16} /> Salvar</button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
