@@ -110,9 +110,22 @@ export default function AdminPage() {
     try {
       const response = await fetch('/api/sync-matches');
       const data = await response.json();
+      
+      // Recarrega os dados após a sincronização
       await loadMatches();
+      
+      return {
+        sucesso: data.sucesso !== false,
+        mensagem: data.mensagem || data.message,
+        jogosProcessados: data.jogosProcessados || 0,
+        erro: data.erro
+      };
     } catch (error) {
       console.error('Erro na sincronização:', error);
+      return {
+        sucesso: false,
+        erro: error instanceof Error ? error.message : 'Erro na sincronização'
+      };
     } finally {
       setSyncLoading(false);
     }

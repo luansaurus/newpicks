@@ -6,7 +6,7 @@ import { supabase } from '@/utils/supabase/client';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { CompetitionProvider, useCompetition } from '@/context/CompetitionContext';
 import { LeagueProvider, useLeague } from '@/context/LeagueContext';
-import { Loader2, Home, LogOut, ChartNoAxesCombinedIcon, Layers, ChevronDown, ChevronUp, Trophy, User, Shield } from 'lucide-react';
+import { Loader2, Home, LogOut, ChartNoAxesCombinedIcon, Layers, ChevronDown, ChevronUp, Trophy, User, Shield, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { CompetitionSelector } from '@/components/shared/CompetitionSelector';
 import { LeagueSelector } from '@/components/shared/LeagueSelector';
@@ -187,10 +187,13 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
 
             <nav className="hidden md:flex items-center gap-1 text-sm font-medium ml-4">
               <Link href="/dashboard" className={`px-3 py-2 rounded-lg transition-colors ${pathname === '/dashboard' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
-                Painel
+                <Home size={20} style={{ color: pathname === '/dashboard' ? themeColor : '' }} />
+              Dashboard
               </Link>
+              
+          
               <Link href="/ranking" className={`px-3 py-2 rounded-lg transition-colors ${pathname === '/ranking' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
-                Ranking
+                <ChartNoAxesCombinedIcon size={20} style={{ color: pathname === '/ranking' ? themeColor : '' }} />Ranking
               </Link>
               
               {/* ADMIN - Desktop */}
@@ -203,7 +206,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
                       : 'text-slate-300 hover:text-white'
                   }`}
                 >
-                  <Shield size={16} />
+                  <Settings  size={16} />
                   Admin
                 </Link>
               )}
@@ -276,7 +279,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t border-slate-800/20 z-50 h-16 flex items-center justify-around px-2 shadow-2xl backdrop-blur-md bg-slate-950/95">
         <Link href="/dashboard" className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/dashboard' ? 'text-white' : 'text-slate-400'}`}>
           <Home size={20} style={{ color: pathname === '/dashboard' ? themeColor : '' }} />
-          <span>Painel</span>
+          <span>Dashboard</span>
         </Link>
         
         <button onClick={() => { setIsCompSelectorOpen(!isCompSelectorOpen); setIsLeagueSelectorOpen(false); }} className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${isCompSelectorOpen ? 'text-white' : 'text-slate-400'}`}>

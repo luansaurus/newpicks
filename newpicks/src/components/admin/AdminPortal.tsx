@@ -8,7 +8,10 @@ import {
   Shield,
   Eye,
   Award,
-  X
+  X,
+  CheckCircle,
+  XCircle,
+  AlertCircle
 } from 'lucide-react';
 
 type PortalType = 'score' | 'matches' | 'settings' | null;
@@ -17,7 +20,7 @@ interface AdminPortalProps {
   scoreManager: React.ReactNode;
   matchManager: React.ReactNode;
   settingsManager: React.ReactNode;
-  onSync?: () => void;
+  onSync?: () => Promise<{ sucesso: boolean; mensagem?: string; jogosProcessados?: number; erro?: string } | void>;
   syncLoading?: boolean;
 }
 
@@ -29,6 +32,44 @@ export function AdminPortal({
   syncLoading = false 
 }: AdminPortalProps) {
   const [activePortal, setActivePortal] = useState<PortalType>('score');
+  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSync = async () => {
+    if (!onSync || isSyncing) return;
+
+    setIsSyncing(true);
+    setSyncMessage(null);
+
+    try {
+      const result = await onSync();
+      
+      if (result && typeof result === 'object') {
+        if (result.sucesso) {
+          const msg = result.jogosProcessados !== undefined 
+            ? `✅ ${result.mensagem || 'Sincronizado!'} (${result.jogosProcessados} jogos atualizados)`
+            : `✅ ${result.mensagem || 'Sincronizado com sucesso!'}`;
+          setSyncMessage({ type: 'success', text: msg });
+        } else {
+          setSyncMessage({ 
+            type: 'error', 
+            text: `❌ ${result.erro || result.mensagem || 'Erro na sincronização'}` 
+          });
+        }
+      } else {
+        setSyncMessage({ type: 'success', text: '✅ Sincronização concluída!' });
+      }
+    } catch (error: any) {
+      setSyncMessage({ 
+        type: 'error', 
+        text: `❌ Erro: ${error.message || 'Falha na sincronização'}` 
+      });
+    } finally {
+      setIsSyncing(false);
+      // Limpa a mensagem após 5 segundos
+      setTimeout(() => setSyncMessage(null), 5000);
+    }
+  };
 
   const portals = [
     {
@@ -78,10 +119,13 @@ export function AdminPortal({
   const openPortal = (portalId: PortalType) => {
     if (activePortal === portalId) return;
     setActivePortal(portalId);
+    // Limpa mensagem ao trocar de portal
+    setSyncMessage(null);
   };
 
   const closePortal = () => {
     setActivePortal(null);
+    setSyncMessage(null);
   };
 
   const renderContent = () => {
@@ -96,6 +140,8 @@ export function AdminPortal({
         return null;
     }
   };
+
+  const isLoading = syncLoading || isSyncing;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4">
@@ -114,27 +160,51 @@ export function AdminPortal({
             </p>
           </div>
           
-          <div className="flex gap-2">
-            {onSync && (
-              <button
-                onClick={onSync}
-                disabled={syncLoading}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold flex items-center gap-2 transition-colors disabled:opacity-50"
-              >
-                <RefreshCw className={`w-4 h-4 ${syncLoading ? 'animate-spin' : ''}`} />
-                {syncLoading ? 'Sincronizando...' : 'Sincronizar API'}
-              </button>
+          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+            {/* Mensagem de sincronização */}
+            {syncMessage && (
+              <div className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 ${
+                syncMessage.type === 'success' 
+                  ? 'bg-green-500/20 text-green-400 border border-green-500/20' 
+                  : syncMessage.type === 'error'
+                  ? 'bg-red-500/20 text-red-400 border border-red-500/20'
+                  : 'bg-blue-500/20 text-blue-400 border border-blue-500/20'
+              }`}>
+                {syncMessage.type === 'success' && <CheckCircle size={16} />}
+                {syncMessage.type === 'error' && <XCircle size={16} />}
+                {syncMessage.type === 'info' && <AlertCircle size={16} />}
+                <span>{syncMessage.text}</span>
+              </div>
             )}
             
-            {activePortal && (
-              <button
-                onClick={closePortal}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold flex items-center gap-2 transition-colors"
-              >
-                <X size={16} />
-                Fechar
-              </button>
-            )}
+            <div className="flex gap-2">
+              {onSync && (
+                <button
+                  onClick={handleSync}
+                  disabled={isLoading}
+                  className={`px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors disabled:opacity-50 ${
+                    syncMessage?.type === 'success' 
+                      ? 'bg-green-600 hover:bg-green-700' 
+                      : syncMessage?.type === 'error'
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  {isLoading ? 'Sincronizando...' : 'Sincronizar API'}
+                </button>
+              )}
+              
+              {activePortal && (
+                <button
+                  onClick={closePortal}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold flex items-center gap-2 transition-colors"
+                >
+                  <X size={16} />
+                  Fechar
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
