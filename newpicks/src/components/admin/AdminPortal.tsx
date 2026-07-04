@@ -66,7 +66,6 @@ export function AdminPortal({
       });
     } finally {
       setIsSyncing(false);
-      // Limpa a mensagem após 5 segundos
       setTimeout(() => setSyncMessage(null), 5000);
     }
   };
@@ -119,7 +118,6 @@ export function AdminPortal({
   const openPortal = (portalId: PortalType) => {
     if (activePortal === portalId) return;
     setActivePortal(portalId);
-    // Limpa mensagem ao trocar de portal
     setSyncMessage(null);
   };
 
@@ -161,7 +159,6 @@ export function AdminPortal({
           </div>
           
           <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
-            {/* Mensagem de sincronização */}
             {syncMessage && (
               <div className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 ${
                 syncMessage.type === 'success' 

@@ -216,7 +216,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4">
             <div className="hidden sm:flex items-center gap-3 text-right">
               <div className="flex flex-col">
-                <span className="text-xs font-bold text-slate-200">@{userProfile?.username}</span>
+                <span className="text-lg font-bold text-slate-200">@{userProfile?.username}</span>
               </div>
               {userProfile?.team_logo && (
                 <img src={userProfile.team_logo} alt="Escudo" className="w-9 h-9 object-contain drop-shadow-lg" />
