@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { MatchCard, MatchStatus } from '@/components/shared/MatchCard';
 import { useCompetition } from '@/context/CompetitionContext';
@@ -122,10 +122,91 @@ export default function DashboardPage() {
   const [loadingMatches, setLoadingMatches] = useState(true);
   const [savingGuesses, setSavingGuesses] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const todaySectionRef = useRef<HTMLDivElement>(null);
   const selectedDateSectionRef = useRef<HTMLDivElement>(null);
 
+  // Função para buscar os dados
+  const fetchMatches = useCallback(async () => {
+    if (!activeCompetition?.id || !currentUserId) return;
+
+    try {
+      setIsRefreshing(true);
+      
+      const { data, error } = await supabase
+        .from('matches')
+        .select(`id, match_time, status, home_score, away_score, home_penalty, away_penalty, phase, competition_id, home_team:teams!home_team_id (id, name, short_code, logo_url), away_team:teams!away_team_id (id, name, short_code, logo_url), guesses (user_id, home_guess, away_guess, points_awarded, penalty_winner_guess)`)
+        .eq('competition_id', activeCompetition.id)
+        .order('match_time', { ascending: true });
+
+      if (error) throw error;
+
+      if (data) {
+        const rulesToUse = activeLeague || GLOBAL_LEAGUE_RULES;
+
+        const formattedMatches = data.map((match: any) => {
+          let uiStatus: MatchStatus = 'SCHEDULED';
+          if (match.status === 'FT' || match.status === 'FINISHED') uiStatus = 'FINISHED';
+          if (match.status === 'LIVE' || match.status === 'HT' || match.status === '1H' || match.status === '2H') uiStatus = 'IN_PLAY';
+
+          const userGuessData = match.guesses?.find((g: any) => g.user_id === currentUserId);
+          
+          let matchPoints = 0;
+          let matchColor: 'GREEN' | 'BLUE' | 'YELLOW' | 'RED' = 'RED';
+          
+          if (uiStatus === 'FINISHED' && userGuessData) {
+            const calc = calculateGuessPoints(
+              match.home_score, match.away_score, 
+              userGuessData.home_guess, userGuessData.away_guess, 
+              rulesToUse, isPlayoffPhase(match.phase), 
+              match.home_penalty, match.away_penalty,
+              userGuessData.penalty_winner_guess
+            );
+            
+            matchColor = calc.color;
+
+            if (activeLeague) {
+              matchPoints = calc.pts;
+            } else {
+              const basePoints = userGuessData.points_awarded || 0;
+              matchPoints = isPlayoffPhase(match.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1
+                ? basePoints * GLOBAL_LEAGUE_RULES.playoff_multiplier
+                : basePoints;
+            }
+          }
+          
+          return {
+            id: match.id, 
+            match_time: match.match_time, 
+            status: uiStatus, 
+            home_score: match.home_score ?? undefined, 
+            away_score: match.away_score ?? undefined, 
+            home_penalties: match.home_penalty ?? undefined, 
+            away_penalties: match.away_penalty ?? undefined, 
+            phase: match.phase || 'groups', 
+            home_team: Array.isArray(match.home_team) ? match.home_team[0] : match.home_team, 
+            away_team: Array.isArray(match.away_team) ? match.away_team[0] : match.away_team, 
+            userGuess: userGuessData ? { 
+              home_guess: userGuessData.home_guess, 
+              away_guess: userGuessData.away_guess,
+              penalty_winner_guess: userGuessData.penalty_winner_guess
+            } : undefined,
+            points: matchPoints, 
+            pointColor: matchColor
+          };
+        });
+        setMatches(formattedMatches);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar confrontos:', err);
+    } finally {
+      setIsRefreshing(false);
+      setLoadingMatches(false);
+    }
+  }, [activeCompetition, activeLeague, currentUserId]);
+
+  // Carregamento inicial e atualização em tempo real
   useEffect(() => {
     const initUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -134,87 +215,40 @@ export default function DashboardPage() {
     initUser();
   }, []);
 
-  // 1. CARREGAMENTO DOS JOGOS
   useEffect(() => {
     if (!activeCompetition?.id || !currentUserId) return;
 
-    const fetchMatchesByCompetition = async () => {
-      setLoadingMatches(true);
-      setMatches([]);
-      setUserStats({ totalPoints: 0, todayPoints: 0, lastDayPoints: 0, exactScores: 0, rank: 0, movement: 0 });
+    setLoadingMatches(true);
+    fetchMatches();
 
-      try {
-        const { data, error } = await supabase
-          .from('matches')
-          .select(`id, match_time, status, home_score, away_score, home_penalty, away_penalty, phase, competition_id, home_team:teams!home_team_id (id, name, short_code, logo_url), away_team:teams!away_team_id (id, name, short_code, logo_url), guesses (user_id, home_guess, away_guess, points_awarded, penalty_winner_guess)`)
-          .eq('competition_id', activeCompetition.id)
-          .order('match_time', { ascending: true });
+    // Polling para atualizar a cada 30 segundos
+    const interval = setInterval(() => {
+      fetchMatches();
+    }, 30000);
 
-        if (error) throw error;
-
-        if (data) {
-          const rulesToUse = activeLeague || GLOBAL_LEAGUE_RULES;
-
-          const formattedMatches = data.map((match: any) => {
-            let uiStatus: MatchStatus = 'SCHEDULED';
-            if (match.status === 'FT') uiStatus = 'FINISHED';
-            if (match.status === 'LIVE' || match.status === 'HT') uiStatus = 'IN_PLAY';
-
-            const userGuessData = match.guesses?.find((g: any) => g.user_id === currentUserId);
-            
-            let matchPoints = undefined;
-            let matchColor: any = 'RED';
-            if (uiStatus === 'FINISHED' && userGuessData) {
-              const calc = calculateGuessPoints(
-                match.home_score, match.away_score, 
-                userGuessData.home_guess, userGuessData.away_guess, 
-                rulesToUse, isPlayoffPhase(match.phase), 
-                match.home_penalty, match.away_penalty,
-                userGuessData.penalty_winner_guess
-              );
-              
-              matchColor = calc.color; 
-
-              if (activeLeague) {
-                matchPoints = calc.pts;
-              } else {
-                const basePoints = userGuessData.points_awarded || 0;
-                matchPoints = isPlayoffPhase(match.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1
-                  ? basePoints * GLOBAL_LEAGUE_RULES.playoff_multiplier
-                  : basePoints;
-              }
-            }
-            
-            return {
-              id: match.id, 
-              match_time: match.match_time, 
-              status: uiStatus, 
-              home_score: match.home_score ?? undefined, 
-              away_score: match.away_score ?? undefined, 
-              home_penalties: match.home_penalty ?? undefined, 
-              away_penalties: match.away_penalty ?? undefined, 
-              phase: match.phase || 'groups', 
-              home_team: Array.isArray(match.home_team) ? match.home_team[0] : match.home_team, 
-              away_team: Array.isArray(match.away_team) ? match.away_team[0] : match.away_team, 
-              userGuess: userGuessData ? { 
-                home_guess: userGuessData.home_guess, 
-                away_guess: userGuessData.away_guess,
-                penalty_winner_guess: userGuessData.penalty_winner_guess
-              } : undefined,
-              points: matchPoints ?? 0, 
-              pointColor: matchColor
-            };
-          });
-          setMatches(formattedMatches);
+    // Subscribe para mudanças em tempo real
+    const subscription = supabase
+      .channel('matches-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'matches',
+          filter: `competition_id=eq.${activeCompetition.id}`
+        },
+        (payload) => {
+          console.log('🔄 Mudança detectada:', payload);
+          fetchMatches();
         }
-      } catch (err) {
-        console.error('Erro ao buscar confrontos:', err);
-      } finally {
-        setLoadingMatches(false);
-      }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      subscription.unsubscribe();
     };
-    fetchMatchesByCompetition();
-  }, [activeCompetition, activeLeague, currentUserId]); 
+  }, [activeCompetition, currentUserId, fetchMatches]);
 
   // 2. CÁLCULO DE ESTATÍSTICAS
   useEffect(() => {
@@ -327,28 +361,23 @@ export default function DashboardPage() {
     calculateStats();
   }, [matches, activeCompetition, activeLeague, currentUserId, todayMs, todayStr]);
 
-  // Função para obter o valor do palpite (prioriza pendente, depois salvo)
+  // Função para obter o valor do palpite
   const getGuessValue = (matchId: number, side: 'home' | 'away' | 'penaltyWinner') => {
     const pending = guesses[matchId];
     const saved = matches.find(m => m.id === matchId)?.userGuess;
     
     if (side === 'penaltyWinner') {
-      // Verifica se existe valor pendente
       if (pending && pending.penaltyWinner !== undefined && pending.penaltyWinner !== null) {
         return pending.penaltyWinner;
       }
-      // Se não tem pendente, usa o salvo
       return saved?.penalty_winner_guess || null;
     }
     
-    // Para home ou away
     const pendingValue = pending?.[side];
-    // Se existe valor pendente (mesmo que seja string vazia), usa ele
     if (pending && pending[side] !== undefined) {
       return pending[side];
     }
     
-    // Se não tem pendente, usa o salvo
     if (side === 'home') {
       return saved?.home_guess?.toString() || '';
     }
@@ -367,7 +396,6 @@ export default function DashboardPage() {
     setGuesses((prev) => {
       const current = prev[matchId] || { home: '', away: '', penaltyWinner: null };
       
-      // Se é pênalti
       if (side === 'penaltyWinner') {
         return {
           ...prev,
@@ -375,19 +403,15 @@ export default function DashboardPage() {
         };
       }
       
-      // Mudança normal de placar (home ou away)
       const updated = { ...current, [side]: value };
       
-      // Verifica se ambos os campos têm valores
       if (updated.home && updated.away) {
         const homeNum = parseInt(updated.home);
         const awayNum = parseInt(updated.away);
-        // Se não for empate, remove o palpite de pênalti
         if (homeNum !== awayNum) {
           updated.penaltyWinner = null;
         }
       } else {
-        // Se um dos campos estiver vazio, também remove o palpite de pênalti
         updated.penaltyWinner = null;
       }
       
@@ -405,7 +429,6 @@ export default function DashboardPage() {
     try {
       const matchIds = Object.keys(guesses).map(id => parseInt(id, 10));
       
-      // Buscar palpites existentes
       const { data: existingGuesses } = await supabase
         .from('guesses')
         .select('match_id, id')
@@ -417,7 +440,6 @@ export default function DashboardPage() {
 
       const recordsToUpsert = Object.entries(guesses)
         .filter(([matchId, guess]) => {
-          // Só salva se tiver ambos os valores preenchidos
           return guess.home && guess.away;
         })
         .map(([matchId, guess]) => {
@@ -435,14 +457,12 @@ export default function DashboardPage() {
             updated_at: new Date().toISOString(),
           };
 
-          // SÓ inclui palpite de pênalti SE o placar for empate E for fase eliminatória
           const match = matches.find(m => m.id === matchIdNum);
           const isEliminatory = match ? isPlayoffPhase(match.phase) : false;
           
           if (isDraw && isEliminatory && guess.penaltyWinner) {
             record.penalty_winner_guess = guess.penaltyWinner;
           } else {
-            // Se não for empate ou não for eliminatório, REMOVE o palpite de pênalti
             record.penalty_winner_guess = null;
           }
 
@@ -468,7 +488,7 @@ export default function DashboardPage() {
       if (error) throw error;
       
       setGuesses({});
-      window.location.reload(); 
+      await fetchMatches(); // Recarrega os dados
     } catch (err) {
       console.error('Erro ao salvar palpites:', err);
       alert('Erro ao salvar palpites. Tente novamente.');
@@ -517,7 +537,13 @@ export default function DashboardPage() {
   const sortedDays: DayGroup[] = Object.values(groupedMatches).sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
   const todayMatches = groupedMatches[todayStr]?.matches || [];
 
-  // 3. SEPARAÇÃO DAS DATAS POR FASE PARA O NAVIGATOR
+  // Verifica se um jogo está bloqueado para palpites
+  const isMatchLocked = (match: any) => {
+    const matchTime = new Date(match.match_time).getTime();
+    const now = new Date().getTime();
+    return matchTime - now < 15 * 60 * 1000; // 15 minutos antes
+  };
+
   const sortedDaysGroups = sortedDays.filter(day => !Array.from(day.phases).some(p => isPlayoffPhase(p)));
   const sortedDaysPlayoffs = sortedDays.filter(day => Array.from(day.phases).some(p => isPlayoffPhase(p)));
 
@@ -534,6 +560,14 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 relative pb-10">
+      {/* Indicador de atualização */}
+      {isRefreshing && (
+        <div className="fixed top-20 right-4 z-50 bg-slate-800/90 px-3 py-1.5 rounded-lg text-xs text-slate-400 flex items-center gap-2">
+          <Loader2 size={12} className="animate-spin" />
+          Atualizando...
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <section className="lg:col-span-2 space-y-6">
           
@@ -560,6 +594,7 @@ export default function DashboardPage() {
                       const isEliminatory = isMatchEliminatory(match);
                       const isDraw = isDrawScore(match.id);
                       const showPenaltySelector = isEliminatory && isDraw;
+                      const isLocked = isMatchLocked(match);
                       
                       return (
                         <MatchCard
@@ -580,6 +615,7 @@ export default function DashboardPage() {
                           userGuess={match.userGuess}
                           points={match.points}
                           pointColor={match.pointColor}
+                          isLocked={isLocked}
                         />
                       );
                     })
@@ -711,6 +747,7 @@ export default function DashboardPage() {
                       const isEliminatory = isMatchEliminatory(match);
                       const isDraw = isDrawScore(match.id);
                       const showPenaltySelector = isEliminatory && isDraw;
+                      const isLocked = isMatchLocked(match);
                       
                       return (
                         <MatchCard
@@ -731,6 +768,7 @@ export default function DashboardPage() {
                           userGuess={match.userGuess}
                           points={match.points}
                           pointColor={match.pointColor}
+                          isLocked={isLocked}
                         />
                       );
                     })}

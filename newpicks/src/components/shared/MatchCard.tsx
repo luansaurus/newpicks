@@ -1,4 +1,4 @@
-import { Clock, Radio, Award, X } from 'lucide-react';
+import { Clock, Radio, Award, X, Lock } from 'lucide-react';
 
 export type MatchStatus = 'SCHEDULED' | 'IN_PLAY' | 'FINISHED';
 
@@ -30,7 +30,8 @@ export interface MatchCardProps {
     penalty_winner_guess?: 'home' | 'away' | null;
   } | null;
   points?: number;
-  pointColor?: 'GREEN' | 'BLUE' | 'YELLOW' | 'RED';
+  pointColor?: 'GREEN' | 'BLUE' | 'YELLOW' | 'RED' | null;
+  isLocked?: boolean;
 }
 
 export function MatchCard({
@@ -50,10 +51,13 @@ export function MatchCard({
   onGuessChange,
   userGuess,
   points,
-  pointColor = 'RED'
+  pointColor = 'RED',
+  isLocked = false
 }: MatchCardProps) {
   
-  const isLocked = new Date(matchDate).getTime() - new Date().getTime() < 15 * 60 * 1000;
+  // Verifica se o jogo está bloqueado por tempo (15 minutos antes)
+  const isLockedByTime = new Date(matchDate).getTime() - new Date().getTime() < 15 * 60 * 1000;
+  const locked = isLocked || isLockedByTime;
 
   const formattedTime = new Date(matchDate).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
@@ -104,28 +108,59 @@ export function MatchCard({
   const displayAway = guessAway ?? (userGuess?.away_guess?.toString() || '');
   const displayPenaltyWinner = penaltyWinnerGuess ?? userGuess?.penalty_winner_guess ?? null;
 
-  // --- LÓGICA DE CORES DO MOTOR DE LIGAS ---
+  // --- LÓGICA DE CORES ---
   let cardBorderColor = 'border-2 border-border';
   let cardBgColor = 'bg-card';
   let pointsBadgeColor = 'text-slate-400 bg-slate-800';
+  let shadowColor = '';
+  let cardExtraClass = '';
 
-  if (status === 'FINISHED' && points !== undefined && points > 0) {
-    if (pointColor === 'GREEN') {
-      cardBorderColor = 'border-2 border-green-500/60 shadow-[0_0_15px_rgba(34,197,94,0.15)]';
-      cardBgColor = 'bg-green-500/10';
-      pointsBadgeColor = 'text-green-400 bg-green-500/20 border-green-500/30';
-    } else if (pointColor === 'BLUE') {
-      cardBorderColor = 'border-2 border-blue-500/60 shadow-[0_0_15px_rgba(59,130,246,0.15)]';
-      cardBgColor = 'bg-blue-500/10';
-      pointsBadgeColor = 'text-blue-400 bg-blue-500/20 border-blue-500/30';
-    } else if (pointColor === 'YELLOW') {
-      cardBorderColor = 'border-2 border-yellow-500/60 shadow-[0_0_15px_rgba(234,179,8,0.15)]';
-      cardBgColor = 'bg-yellow-500/10';
-      pointsBadgeColor = 'text-yellow-400 bg-yellow-500/20 border-yellow-500/30';
-    } else {
+  // 1. JOGO EM ANDAMENTO (IN_PLAY) - Roxo/Índigo
+  if (status === 'IN_PLAY') {
+    cardBorderColor = 'border-2 border-indigo-500/60 shadow-[0_0_20px_rgba(99,102,241,0.15)]';
+    cardBgColor = 'bg-indigo-500/5';
+    shadowColor = 'shadow-indigo-500/5';
+    cardExtraClass = 'animate-pulse-slow';
+  }
+  // 2. JOGO BLOQUEADO (15 min antes)
+  else if (status === 'SCHEDULED' && locked) {
+    cardBorderColor = 'border-2 border-slate-600/40 shadow-[0_0_10px_rgba(100,116,139,0.05)]';
+    cardBgColor = 'bg-slate-800/30';
+    shadowColor = 'shadow-slate-600/5';
+    cardExtraClass = 'opacity-80';
+  }
+  // 3. JOGO FINALIZADO
+  else if (status === 'FINISHED' && points !== undefined && points !== null) {
+    if (points > 0) {
+      // Acertou algo - cores positivas
+      if (pointColor === 'GREEN') {
+        cardBorderColor = 'border-2 border-green-500/60 shadow-[0_0_15px_rgba(34,197,94,0.15)]';
+        cardBgColor = 'bg-green-500/10';
+        pointsBadgeColor = 'text-green-400 bg-green-500/20 border-green-500/30';
+        shadowColor = 'shadow-green-500/10';
+      } else if (pointColor === 'BLUE') {
+        cardBorderColor = 'border-2 border-blue-500/60 shadow-[0_0_15px_rgba(59,130,246,0.15)]';
+        cardBgColor = 'bg-blue-500/10';
+        pointsBadgeColor = 'text-blue-400 bg-blue-500/20 border-blue-500/30';
+        shadowColor = 'shadow-blue-500/10';
+      } else if (pointColor === 'YELLOW') {
+        cardBorderColor = 'border-2 border-yellow-500/60 shadow-[0_0_15px_rgba(234,179,8,0.15)]';
+        cardBgColor = 'bg-yellow-500/10';
+        pointsBadgeColor = 'text-yellow-400 bg-yellow-500/20 border-yellow-500/30';
+        shadowColor = 'shadow-yellow-500/10';
+      } else {
+        // RED - Errou o palpite (mas ganhou pontos parciais)
+        cardBorderColor = 'border-2 border-red-500/60 shadow-[0_0_15px_rgba(239,68,68,0.15)]';
+        cardBgColor = 'bg-red-500/10';
+        pointsBadgeColor = 'text-red-400 bg-red-500/20 border-red-500/30';
+        shadowColor = 'shadow-red-500/10';
+      }
+    } else if (points === 0) {
+      // RED - Errou completamente (0 pontos)
       cardBorderColor = 'border-2 border-red-500/60 shadow-[0_0_15px_rgba(239,68,68,0.15)]';
       cardBgColor = 'bg-red-500/10';
       pointsBadgeColor = 'text-red-400 bg-red-500/20 border-red-500/30';
+      shadowColor = 'shadow-red-500/10';
     }
   }
 
@@ -158,7 +193,7 @@ export function MatchCard({
       onClick={onClick}
       className={`relative w-full ${cardBgColor} p-4 rounded-2xl transition-all duration-300 ${cardBorderColor} ${
         onClick ? 'cursor-pointer hover:border-primary hover:shadow-[0_0_15px_rgba(var(--color-primary),0.1)] hover:-translate-y-1' : ''
-      }`}
+      } ${shadowColor} ${cardExtraClass}`}
     >
       <div className="flex justify-center mb-4">
         {renderStatusBadge()}
@@ -211,17 +246,49 @@ export function MatchCard({
                     )}
                   </span>
                   
-                  {points !== undefined && points > 0 && (
+                  {points !== undefined && points > 0 ? (
                     <div className={`flex items-center gap-1.5 font-bold text-[10px] sm:text-xs mt-1 px-3 py-1 rounded-md border w-full justify-center shadow-sm backdrop-blur-sm ${pointsBadgeColor}`}>
                       <Award size={14} /> 
-                      <span>{points} pts</span>
+                      <span>+{points} pts</span>
+                    </div>
+                  ) : points === 0 && (
+                    <div className="flex items-center gap-1.5 font-bold text-[10px] sm:text-xs mt-1 px-3 py-1 rounded-md border w-full justify-center shadow-sm backdrop-blur-sm text-red-400 bg-red-500/20 border-red-500/30">
+                      <X size={14} /> 
+                      <span>0 pts</span>
                     </div>
                   )}
                 </div>
               )}
             </div>
             
-          ) : status === 'SCHEDULED' && !isLocked ? (
+          ) : status === 'SCHEDULED' && locked ? (
+            // JOGO BLOQUEADO - 15 minutos antes
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex items-center gap-3 sm:gap-4 opacity-60">
+                <span className="text-4xl sm:text-5xl font-display font-bold text-slate-500">-</span>
+                <span className="text-xl sm:text-2xl font-display text-slate-600 font-bold">:</span>
+                <span className="text-4xl sm:text-5xl font-display font-bold text-slate-500">-</span>
+              </div>
+              <div className="text-[10px] sm:text-xs text-slate-400 bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700/50 flex items-center gap-1.5">
+                <Lock size={12} className="text-slate-500" />
+                Palpites bloqueados
+              </div>
+              {userGuess && (
+                <span className="text-[10px] sm:text-xs text-slate-400 font-medium bg-slate-950/60 px-2.5 py-1 rounded-md border border-slate-800 mt-1">
+                  Seu palpite: <strong className="text-white">{userGuess.home_guess} - {userGuess.away_guess}</strong>
+                  {userGuess.penalty_winner_guess && (
+                    <span className="ml-1 text-xs">
+                      {userGuess.penalty_winner_guess === 'home' 
+                        ? `🏆 ${homeTeam?.short_code || 'Casa'}` 
+                        : `🏆 ${awayTeam?.short_code || 'Fora'}`}
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
+
+          ) : status === 'SCHEDULED' && !locked ? (
+            // JOGO DISPONÍVEL PARA PALPITES
             <div className="flex flex-col items-center gap-3">
               <div className="flex items-center gap-2 sm:gap-3">
                 <input 
@@ -284,20 +351,27 @@ export function MatchCard({
                 </div>
               )}
             </div>
+
           ) : (
+            // IN_PLAY - mostra placar ao vivo com destaque
             <div className="flex flex-col items-center gap-2">
               <div className="flex items-center gap-3 sm:gap-4">
-                <span className="text-4xl sm:text-5xl font-display font-bold text-white">
-                  {status === 'SCHEDULED' ? '-' : (homeScore ?? 0)}
+                <span className="text-4xl sm:text-5xl font-display font-bold text-white drop-shadow-md">
+                  {homeScore ?? 0}
                 </span>
-                <span className="text-xl sm:text-2xl font-display text-slate-600 font-bold">:</span>
-                <span className="text-4xl sm:text-5xl font-display font-bold text-white">
-                  {status === 'SCHEDULED' ? '-' : (awayScore ?? 0)}
+                <span className="text-xl sm:text-2xl font-display text-slate-500 font-bold">:</span>
+                <span className="text-4xl sm:text-5xl font-display font-bold text-white drop-shadow-md">
+                  {awayScore ?? 0}
                 </span>
               </div>
               
+              <div className="flex items-center gap-1.5 text-red-500 bg-red-500/10 px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider animate-pulse">
+                <Radio size={10} className="animate-pulse" />
+                AO VIVO
+              </div>
+              
               {userGuess && (
-                <span className="text-[10px] sm:text-xs text-slate-300 font-medium bg-slate-950/60 px-2.5 py-1 rounded-md border border-slate-800 mt-1 backdrop-blur-sm shadow-sm">
+                <span className="text-[10px] sm:text-xs text-slate-400 font-medium bg-slate-950/60 px-2.5 py-1 rounded-md border border-slate-800 mt-1">
                   Seu palpite: <strong className="text-white">{userGuess.home_guess} - {userGuess.away_guess}</strong>
                   {userGuess.penalty_winner_guess && (
                     <span className="ml-1 text-xs">
