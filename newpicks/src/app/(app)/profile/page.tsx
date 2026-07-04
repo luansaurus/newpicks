@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import { useTheme } from '@/context/ThemeContext';
-import { Loader2, User, ShieldOff, AlertCircle } from 'lucide-react';
+import { Loader2, User, ShieldOff, AlertCircle, Globe, Shield } from 'lucide-react';
 
 interface Team {
   id: number;
@@ -13,6 +13,7 @@ interface Team {
   short_code: string;
   logo_url: string;
   main_color: string;
+  type: 'country' | 'club'; // Agora é obrigatório, vem do banco
 }
 
 export default function ProfilePage() {
@@ -24,12 +25,11 @@ export default function ProfilePage() {
   const [username, setUsername] = useState('');
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [selectedType, setSelectedType] = useState<'club' | 'country' | null>(null);
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isButtonTextDark, setIsButtonTextDark] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-  
-  // Estado para saber se é primeiro acesso ou edição
   const [isEditing, setIsEditing] = useState(false);
 
   const calculateBrightness = (hex: string) => {
@@ -43,70 +43,93 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const initializePage = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        router.push('/login');
-        return;
-      }
-      setUserId(session.user.id);
-
-      const { data: teamsData } = await supabase.from('teams').select('*');
-      const allTeams = teamsData || [];
-      setTeams(allTeams);
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('username, user_team')
-        .eq('id', session.user.id)
-        .single();
-
-      if (profile) {
-        if (profile.username) setUsername(profile.username);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
         
-        if (profile.user_team) {
-          const currentTeam = allTeams.find(t => t.id === profile.user_team);
-          if (currentTeam) {
-            setSelectedTeam(currentTeam);
-            applyTheme(currentTeam.main_color);
-            calculateBrightness(currentTeam.main_color);
-            if (currentTeam.short_code !== 'S/T') {
-              setSelectedCountry(currentTeam.country_code);
+        if (!session) {
+          router.push('/login');
+          return;
+        }
+        setUserId(session.user.id);
+
+        const { data: teamsData } = await supabase.from('teams').select('*');
+        const allTeams = (teamsData || []) as Team[];
+        
+        setTeams(allTeams);
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('username, user_team')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profile) {
+          if (profile.username) setUsername(profile.username);
+          
+          if (profile.user_team) {
+            const currentTeam = allTeams.find(t => t.id === profile.user_team);
+            if (currentTeam) {
+              setSelectedTeam(currentTeam);
+              applyTheme(currentTeam.main_color);
+              calculateBrightness(currentTeam.main_color);
+              
+              // Usa o type do banco
+              setSelectedType(currentTeam.type);
+              if (currentTeam.type === 'club') {
+                setSelectedCountry(currentTeam.country_code);
+              } else {
+                setSelectedCountry(null);
+              }
             }
           }
-        }
 
-        // Se ambos estiverem preenchidos, ativamos o modo edição (não redirecionamos mais!)
-        if (profile.username && profile.user_team) {
-          setIsEditing(true);
+          if (profile.username && profile.user_team) {
+            setIsEditing(true);
+          }
         }
+      } catch (error) {
+        console.error('Error initializing page:', error);
+      } finally {
+        setCheckingSession(false);
       }
-      setCheckingSession(false);
     };
 
     initializePage();
-  }, [router, applyTheme]);
+  }, []);
 
-  const groupedTeams = teams
-    .filter((team) => team.short_code !== 'S/T')
-    .reduce((acc: any, team) => {
+  // Agrupa clubes por país (apenas times com type = 'club')
+  const teamsByCountry = teams
+    .filter((team) => team.type === 'club')
+    .reduce((acc: Record<string, Team[]>, team) => {
       const code = team.country_code || 'Outros';
-      (acc[code] = acc[code] || []).push(team);
+      if (!acc[code]) acc[code] = [];
+      acc[code].push(team);
       return acc;
     }, {});
+
+  // Lista de países únicos
+  const countries = Object.keys(teamsByCountry).sort();
+
+  // Times de seleções (type = 'country')
+  const nationalTeams = teams.filter(team => team.type === 'country');
 
   const handleTeamSelection = (team: Team | null) => {
     if (team) {
       setSelectedTeam(team);
       applyTheme(team.main_color);
       calculateBrightness(team.main_color);
-    } else {
-      const noTeamPlaceholder = teams.find((t) => t.short_code === 'S/T');
-      if (noTeamPlaceholder) {
-        setSelectedTeam(noTeamPlaceholder);
-        applyTheme(noTeamPlaceholder.main_color);
-        calculateBrightness(noTeamPlaceholder.main_color);
+      
+      // Usa o type do banco
+      setSelectedType(team.type);
+      if (team.type === 'club') {
+        setSelectedCountry(team.country_code);
+      } else {
+        setSelectedCountry(null);
       }
+    } else {
+      setSelectedTeam(null);
+      setSelectedType(null);
+      setSelectedCountry(null);
     }
   };
 
@@ -124,7 +147,7 @@ export default function ProfilePage() {
     }
 
     if (!selectedTeam) {
-      setError('Por favor, selecione um clube ou marque a opção "Sem time".');
+      setError('Por favor, selecione um clube ou uma seleção.');
       setLoading(false);
       return;
     }
@@ -154,6 +177,14 @@ export default function ProfilePage() {
   };
 
   if (checkingSession) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="animate-spin text-primary" size={40} />
+      </div>
+    );
+  }
+
+  if (teams.length === 0) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="animate-spin text-primary" size={40} />
@@ -195,59 +226,134 @@ export default function ProfilePage() {
         </div>
 
         <div className="space-y-4 mb-8">
-          <label className="text-xs font-bold uppercase text-slate-500 ml-1">Escolha seu Clube de Coração</label>
-          <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-            {Object.keys(groupedTeams).map((country) => {
-              const isSelected = selectedCountry === country && selectedTeam?.short_code !== 'S/T';
-              return (
-                <button
-                  key={country}
-                  type="button"
-                  onClick={() => setSelectedCountry(country)}
-                  className={`px-4 py-2 rounded-lg border text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
-                    isSelected
-                      ? `border-transparent ${isButtonTextDark ? 'text-slate-950' : 'text-white'}`
-                      : 'bg-background border-border text-slate-400'
-                  }`}
-                  style={{ backgroundColor: isSelected ? 'var(--color-primary)' : '' }}
-                >
-                  {country === 'ENG' ? '🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League' : country === 'GER' ? '🇩🇪 Bundesliga' : country}
-                </button>
-              );
-            })}
-
+          <label className="text-xs font-bold uppercase text-slate-500 ml-1">Escolha seu Time do Coração</label>
+          
+          {/* Box de seleção de tipo */}
+          <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={() => {
+                setSelectedType('club');
                 setSelectedCountry(null);
-                handleTeamSelection(null);
+                setSelectedTeam(null);
               }}
-              className={`px-4 py-2 rounded-lg border text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
-                selectedTeam?.short_code === 'S/T'
-                  ? 'bg-slate-600 text-white border-slate-500'
-                  : 'bg-background border-border text-slate-400'
+              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                selectedType === 'club' 
+                  ? 'border-primary bg-primary/10' 
+                  : 'border-border bg-background hover:border-slate-600'
               }`}
             >
-              <ShieldOff size={16} className="inline mr-1" /> Sem time
+              <Shield size={20} className={selectedType === 'club' ? 'text-primary' : 'text-slate-400'} />
+              <span className={`font-bold ${selectedType === 'club' ? 'text-primary' : 'text-slate-400'}`}>
+                Clube
+              </span>
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedType('country');
+                setSelectedCountry(null);
+                setSelectedTeam(null);
+              }}
+              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                selectedType === 'country' 
+                  ? 'border-primary bg-primary/10' 
+                  : 'border-border bg-background hover:border-slate-600'
+              }`}
+            >
+              <Globe size={20} className={selectedType === 'country' ? 'text-primary' : 'text-slate-400'} />
+              <span className={`font-bold ${selectedType === 'country' ? 'text-primary' : 'text-slate-400'}`}>
+                Seleção
+              </span>
             </button>
           </div>
 
-          {selectedCountry && selectedTeam?.short_code !== 'S/T' && (
-            <div className="grid grid-cols-4 sm:grid-cols-8 gap-3 p-3 bg-background/50 rounded-xl border border-border">
-              {groupedTeams[selectedCountry].map((team: Team) => (
-                <button
-                  key={team.id}
-                  type="button"
-                  onClick={() => handleTeamSelection(team)}
-                  className={`aspect-square p-2 rounded-xl border-2 flex items-center justify-center transition-all cursor-pointer ${
-                    selectedTeam?.id === team.id ? 'border-primary bg-primary/10' : 'border-transparent bg-card hover:border-slate-600'
-                  }`}
-                >
-                  <img src={team.logo_url} alt={team.name} className="max-w-full max-h-full object-contain" />
-                </button>
-              ))}
+          {/* Lista de países para clubes */}
+          {selectedType === 'club' && (
+            <div className="space-y-4">
+              <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                {countries.map((country) => {
+                  const isSelected = selectedCountry === country;
+                  return (
+                    <button
+                      key={country}
+                      type="button"
+                      onClick={() => setSelectedCountry(country)}
+                      className={`px-4 py-2 rounded-lg border text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
+                        isSelected
+                          ? `border-transparent ${isButtonTextDark ? 'text-slate-950' : 'text-white'}`
+                          : 'bg-background border-border text-slate-400 hover:border-slate-600'
+                      }`}
+                      style={{ backgroundColor: isSelected ? 'var(--color-primary)' : '' }}
+                    >
+                      {country === 'ENG' ? '🏴󠁧󠁢󠁥󠁮󠁧󠁿 Inglaterra' : 
+                       country === 'GER' ? '🇩🇪 Alemanha' : 
+                       country === 'ESP' ? '🇪🇸 Espanha' :
+                       country === 'ITA' ? '🇮🇹 Itália' :
+                       country === 'FRA' ? '🇫🇷 França' :
+                       country === 'POR' ? '🇵🇹 Portugal' :
+                       country === 'NED' ? '🇳🇱 Holanda' :
+                       country === 'BRA' ? '🇧🇷 Brasil' :
+                       country === 'ARG' ? '🇦🇷 Argentina' :
+                       country}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedCountry && teamsByCountry[selectedCountry] && (
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-3 p-3 bg-background/50 rounded-xl border border-border">
+                  {teamsByCountry[selectedCountry].map((team: Team) => (
+                    <button
+                      key={team.id}
+                      type="button"
+                      onClick={() => handleTeamSelection(team)}
+                      className={`aspect-square p-2 rounded-xl border-2 flex items-center justify-center transition-all cursor-pointer ${
+                        selectedTeam?.id === team.id ? 'border-primary bg-primary/10' : 'border-transparent bg-card hover:border-slate-600'
+                      }`}
+                    >
+                      {team.logo_url ? (
+                        <img src={team.logo_url} alt={team.name} className="max-w-full max-h-full object-contain" />
+                      ) : (
+                        <span className="text-xs text-slate-400">{team.name}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
+
+          {/* Lista de seleções */}
+          {selectedType === 'country' && (
+            <div className="grid grid-cols-4 sm:grid-cols-8 gap-3 p-3 bg-background/50 rounded-xl border border-border">
+              {nationalTeams.length > 0 ? (
+                nationalTeams.map((team: Team) => (
+                  <button
+                    key={team.id}
+                    type="button"
+                    onClick={() => handleTeamSelection(team)}
+                    className={`aspect-square p-2 rounded-xl border-2 flex items-center justify-center transition-all cursor-pointer ${
+                      selectedTeam?.id === team.id ? 'border-primary bg-primary/10' : 'border-transparent bg-card hover:border-slate-600'
+                    }`}
+                  >
+                    {team.logo_url ? (
+                      <img src={team.logo_url} alt={team.name} className="max-w-full max-h-full object-contain" />
+                    ) : (
+                      <span className="text-xs text-slate-400">{team.name}</span>
+                    )}
+                  </button>
+                ))
+              ) : (
+                <div className="col-span-full text-center text-slate-400 py-8">
+                  Nenhuma seleção disponível no momento.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Opção "Sem time" removida pois não faz mais sentido com o novo sistema */}
         </div>
 
         {error && (
