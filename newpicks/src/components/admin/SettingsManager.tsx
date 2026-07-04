@@ -537,23 +537,6 @@ export function SettingsManager({ matches, onUpdate }: SettingsManagerProps) {
     }
   };
 
-  const handleResetPassword = async (userId: string, username: string, email: string) => {
-    if (!confirm(`Deseja enviar um email de reset de senha para @${username}?`)) return;
-
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(
-            email, 
-            { redirectTo: `${window.location.origin}/reset-password` }
-            );
-
-      if (error) throw error;
-
-      showMessage('success', `Email de reset enviado para @${username}`);
-    } catch (error) {
-      console.error('Erro ao resetar senha:', error);
-      showMessage('error', 'Erro ao enviar email de reset');
-    }
-  };
 
   // --- FUNÇÕES DE COMPETIÇÕES ---
   
@@ -1028,13 +1011,6 @@ export function SettingsManager({ matches, onUpdate }: SettingsManagerProps) {
                         title="Editar usuário"
                       >
                         <Edit2 size={14} />
-                      </button>
-                      <button
-                        onClick={() => handleResetPassword(user.id, user.username)}
-                        className="p-1.5 text-slate-400 hover:text-yellow-400 hover:bg-yellow-500/10 rounded transition-colors"
-                        title="Resetar senha"
-                      >
-                        <Key size={14} />
                       </button>
                       <button
                         onClick={() => handleToggleAdmin(user.id, user.is_admin)}

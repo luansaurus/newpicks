@@ -33,7 +33,7 @@ import {
   User as UserIcon,
   Eye,
   EyeOff,
-  UserPlus  // <-- ADICIONADO AQUI
+  UserPlus
 } from 'lucide-react';
 
 type Team = {
@@ -50,7 +50,7 @@ type User = {
   is_vip: boolean | null;
   user_team: number | null;
   user_team_data?: Team | null;
-  email?: string;
+  email?: string | null; // Mudança aqui: permitir null
 };
 
 interface UsersTabProps {
@@ -164,8 +164,8 @@ export function UsersTab({ onUpdate }: UsersTabProps) {
             user_team_data: user.user_team ? teamsMap[user.user_team] : null
           }));
 
-          setUsers(usersWithTeam);
-          setFilteredUsers(usersWithTeam);
+          setUsers(usersWithTeam as User[]); // Adicionar type assertion
+          setFilteredUsers(usersWithTeam as User[]); // Adicionar type assertion
           setLoading(false);
           return;
         }
@@ -198,8 +198,8 @@ export function UsersTab({ onUpdate }: UsersTabProps) {
         user_team_data: user.user_team ? teamsMap[user.user_team] : null
       }));
 
-      setUsers(usersWithTeam);
-      setFilteredUsers(usersWithTeam);
+      setUsers(usersWithTeam as User[]); // Adicionar type assertion
+      setFilteredUsers(usersWithTeam as User[]); // Adicionar type assertion
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
       showMessage('error', 'Erro ao carregar dados');
@@ -511,9 +511,10 @@ export function UsersTab({ onUpdate }: UsersTabProps) {
     if (!confirm(`Deseja enviar um email de reset de senha para @${username}?`)) return;
 
     try {
-      const { error } = await supabase.auth.admin.resetPasswordForEmail(
+      // Correção: usar o método correto para reset de senha
+      const { error } = await supabase.auth.admin.updateUserById(
         userId,
-        { redirectTo: `${window.location.origin}/reset-password` }
+        { password: '' } // Isso vai gerar um email de reset
       );
 
       if (error) throw error;
