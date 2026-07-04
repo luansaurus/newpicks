@@ -537,14 +537,14 @@ export function SettingsManager({ matches, onUpdate }: SettingsManagerProps) {
     }
   };
 
-  const handleResetPassword = async (userId: string, username: string) => {
+  const handleResetPassword = async (userId: string, username: string, email: string) => {
     if (!confirm(`Deseja enviar um email de reset de senha para @${username}?`)) return;
 
     try {
-      const { error } = await supabase.auth.admin.resetPasswordForEmail(
-        userId,
-        { redirectTo: `${window.location.origin}/reset-password` }
-      );
+      const { error } = await supabase.auth.resetPasswordForEmail(
+            email, 
+            { redirectTo: `${window.location.origin}/reset-password` }
+            );
 
       if (error) throw error;
 
