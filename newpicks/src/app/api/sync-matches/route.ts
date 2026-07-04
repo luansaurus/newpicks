@@ -21,7 +21,11 @@ const NOME_MAP: Record<string, string> = {
 
 export async function GET(request: Request) {
   try {
+    console.log('🚀 Iniciando sincronização...');
+    
     const apiKey = process.env.API_FOOTBALL_KEY;
+    console.log('🔑 Chave API:', apiKey ? 'Presente' : 'Ausente');
+    
     if (!apiKey) {
       return NextResponse.json({ erro: "Chave API ausente." }, { status: 500 });
     }
@@ -31,18 +35,22 @@ export async function GET(request: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Buscar jogos da competição 1 (Copa do Mundo)
+    console.log('📊 Buscando jogos da competição 1 (Copa do Mundo)...');
+    
     const { data: todosOsJogos, error: dbError } = await supabase
       .from('matches')
-      .select('id, home_team, away_team, match_time, status, competition_id')
+      .select('id, home_team, away_team, match_time, status')
       .eq('competition_id', 1);
 
     if (dbError || !todosOsJogos) {
+      console.error('❌ Erro no banco:', dbError);
       return NextResponse.json({ 
         erro: "Erro ao consultar o banco.", 
         detalhe: dbError?.message 
       }, { status: 500 });
     }
+
+    console.log(`📊 ${todosOsJogos.length} jogos encontrados no banco`);
 
     const agora = new Date().getTime();
     const datasParaAPI = new Set<string>();
@@ -63,6 +71,9 @@ export async function GET(request: Request) {
       }
     }
 
+    console.log(`📊 ${jogosAtivos.length} jogos ativos encontrados`);
+    console.log(`📅 Datas para consultar:`, Array.from(datasParaAPI));
+
     if (jogosAtivos.length === 0) {
       return NextResponse.json({ 
         message: "Nenhum jogo ativo no momento no Supabase.", 
@@ -72,32 +83,30 @@ export async function GET(request: Request) {
 
     let totalAtualizados = 0;
     let chamadasAPI = 0;
-    let limitePorMinutoRestante: string | null = null;
     
     for (const utcDate of datasParaAPI) {
       chamadasAPI++;
       
       const url = `https://api.football-data.org/v4/competitions/WC/matches?dateFrom=${utcDate}&dateTo=${utcDate}`;
       
-      console.log(`🔍 Consultando: ${url}`);
+      console.log(`🔍 Consultando API para ${utcDate}...`);
       
       const response = await fetch(url, {
         headers: { 'X-Auth-Token': apiKey },
         cache: 'no-store'
       });
       
-      limitePorMinutoRestante = response.headers.get('X-Requests-Available-Minute');
-      
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`❌ Erro na API para ${utcDate}: ${response.status} - ${errorText}`);
+        console.error(`❌ Erro na API para ${utcDate}: ${response.status}`);
+        console.error(`   ${errorText.substring(0, 200)}`);
         continue;
       }
 
       const data = await response.json();
       const todosOsJogosAPI = data.matches || [];
 
-      console.log(`📋 ${todosOsJogosAPI.length} jogos encontrados para ${utcDate}`);
+      console.log(`   ${todosOsJogosAPI.length} jogos encontrados na API`);
 
       for (const jogoDB of jogosAtivos) {
         const fixtureAPI = todosOsJogosAPI.find((m: any) => {
@@ -109,7 +118,10 @@ export async function GET(request: Request) {
         if (fixtureAPI) {
           const statusAPI = fixtureAPI.status;
           
-          if (['SCHEDULED', 'TIMED', 'POSTPONED', 'CANCELLED', 'SUSPENDED'].includes(statusAPI)) continue; 
+          if (['SCHEDULED', 'TIMED', 'POSTPONED', 'CANCELLED', 'SUSPENDED'].includes(statusAPI)) {
+            console.log(`   ⏳ ${jogoDB.home_team} vs ${jogoDB.away_team} - ${statusAPI} (ignorado)`);
+            continue; 
+          }
 
           let statusFinal = '1H'; 
           if (statusAPI === 'IN_PLAY') {
@@ -143,15 +155,18 @@ export async function GET(request: Request) {
             totalAtualizados++;
             console.log(`✅ Atualizado: ${jogoDB.home_team} ${golsCasa}-${golsFora} ${jogoDB.away_team}`);
           }
+        } else {
+          console.log(`   ⚠️ Jogo não encontrado na API: ${jogoDB.home_team} vs ${jogoDB.away_team}`);
         }
       }
     }
+
+    console.log(`✅ Sincronização concluída! ${totalAtualizados} jogos atualizados.`);
 
     return NextResponse.json({ 
       sucesso: true,
       mensagem: "Sincronização via Football-Data executada com sucesso!",
       jogosProcessados: totalAtualizados,
-      limitePorMinutoRestante: limitePorMinutoRestante,
       chamadasAPI: chamadasAPI
     });
 
