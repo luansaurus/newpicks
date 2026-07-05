@@ -9,8 +9,10 @@ import { useLeague } from '@/context/LeagueContext';
 import { calculateGuessPoints, GLOBAL_LEAGUE_RULES, isPlayoffPhase } from '@/utils/leagueEngine';
 import { SpyModal } from '@/components/shared/modals/SpyModal';
 import { ComparisonModal } from '@/components/shared/modals/ComparisonModal';
+import { ChampionDisplay } from '@/components/shared/ChampionDisplay';
+import { getUserChampionInfo, ChampionInfo } from '@/utils/championUtils';
 
-export default function RankingPage() { // ← VERIFIQUE SE ESTÁ AQUI
+export default function RankingPage() {
   const { activeCompetition } = useCompetition();
   const { activeLeague } = useLeague();
   const { themeColor } = useTheme();
@@ -23,13 +25,23 @@ export default function RankingPage() { // ← VERIFIQUE SE ESTÁ AQUI
   const [compModal, setCompModal] = useState<any>(null);
   const [matchesForModals, setMatchesForModals] = useState<any[]>([]);
 
+  const [championInfo, setChampionInfo] = useState<{ 
+    champion: ChampionInfo | null; 
+    userPosition: number | null; 
+    isChampion: boolean 
+  }>({
+    champion: null,
+    userPosition: null,
+    isChampion: false
+  });
+
   const defaultLogo = "https://assets.football-logos.cc/logos/tournaments/512x512/fifa-world-cup-2026--white.12f8795d.png";
 
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) setCurrentUserId(session.user.id);
-      fetchRanking();
+      await fetchRanking();
     };
     init();
   }, [activeCompetition, activeLeague]);
@@ -153,7 +165,20 @@ export default function RankingPage() { // ← VERIFIQUE SE ESTÁ AQUI
 
       setRanking(finalRanking);
       setMatchesForModals(Object.values(matchesWithGuesses));
-    } catch (e) { console.error(e); }
+
+      // Busca informações do campeão
+      if (currentUserId && activeCompetition?.id) {
+        const championData = await getUserChampionInfo(
+          activeCompetition.id,
+          currentUserId,
+          activeLeague?.id || null
+        );
+        setChampionInfo(championData);
+      }
+
+    } catch (e) { 
+      console.error(e); 
+    }
     setLoading(false);
   };
 
@@ -183,6 +208,20 @@ export default function RankingPage() { // ← VERIFIQUE SE ESTÁ AQUI
           </div>
         </div>
 
+        {/* Exibição do Campeão */}
+        {championInfo.champion && (
+          <div className="mb-6">
+            <ChampionDisplay
+              championName={championInfo.champion.userName}
+              championLogo={championInfo.champion.userLogo}
+              userPosition={championInfo.userPosition || undefined}
+              userName={currentUserId ? 'Você' : undefined}
+              isChampion={championInfo.isChampion}
+              leagueName={activeLeague?.name}
+            />
+          </div>
+        )}
+
         {/* Conteúdo rolável */}
         <div className="flex-1 overflow-y-auto pt-2">
           {loading ? (
@@ -196,14 +235,28 @@ export default function RankingPage() { // ← VERIFIQUE SE ESTÁ AQUI
             <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
               {ranking.map((user, index) => {
                 const isMe = user.id === currentUserId;
+                const isChampion = championInfo.isChampion && isMe;
+                
                 return (
                   <div key={user.id} className={`flex items-center justify-between p-4 border-b border-border last:border-0 ${isMe ? 'bg-primary/5' : ''}`}>
                     <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 flex items-center justify-center rounded-xl font-bold font-display ${index === 0 ? 'bg-yellow-500/20 text-yellow-500' : index === 1 ? 'bg-slate-300/30 text-slate-300' : index === 2 ? 'bg-orange-800/30 text-orange-700' : 'text-slate-500'}`}>
+                      <div className={`w-10 h-10 flex items-center justify-center rounded-xl font-bold font-display ${
+                        index === 0 ? 'bg-yellow-500/20 text-yellow-500' : 
+                        index === 1 ? 'bg-slate-300/30 text-slate-300' : 
+                        index === 2 ? 'bg-orange-800/30 text-orange-700' : 
+                        'text-slate-500'
+                      }`}>
                         {index < 3 ? <Medal size={20} /> : <span className="text-sm">{index + 1}º</span>}
                       </div>
                       <img src={user.logo} className="w-10 h-10 rounded-full object-contain bg-background border border-border p-1" />
-                      <span className={`font-medium ${isMe ? 'text-primary font-bold' : ''}`}>{user.name}</span>
+                      <span className={`font-medium ${isMe ? 'text-primary font-bold' : ''}`}>
+                        {user.name}
+                        {isChampion && (
+                          <span className="ml-2 text-[10px] font-bold bg-yellow-500/20 text-yellow-500 px-2 py-0.5 rounded-full">
+                            🏆 Campeão
+                          </span>
+                        )}
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-4 sm:gap-6">

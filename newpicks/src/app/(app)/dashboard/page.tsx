@@ -7,8 +7,10 @@ import { useCompetition } from '@/context/CompetitionContext';
 import { useLeague } from '@/context/LeagueContext';
 import { useTheme } from '@/context/ThemeContext';
 import { UserPerformance, UserStats } from '@/components/shared/UserPerformance';
-import { Calendar, Loader2, Save, ChevronDown, ChevronUp, Flame, Trophy, Medal } from 'lucide-react';
+import { Calendar, Loader2, Save, ChevronDown, ChevronUp, Flame, Trophy, Medal, Award, Crown } from 'lucide-react';
 import { calculateGuessPoints, GLOBAL_LEAGUE_RULES, isPlayoffPhase } from '@/utils/leagueEngine';
+import { ChampionDisplay } from '@/components/shared/ChampionDisplay';
+import { getUserChampionInfo, ChampionInfo } from '@/utils/championUtils';
 
 interface DayGroup {
   dateKey: string;
@@ -123,6 +125,19 @@ export default function DashboardPage() {
   const [savingGuesses, setSavingGuesses] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  const [championInfo, setChampionInfo] = useState<{ 
+    champion: ChampionInfo | null; 
+    userPosition: number | null; 
+    isChampion: boolean;
+    isTestMode: boolean;
+  }>({
+    champion: null,
+    userPosition: null,
+    isChampion: false,
+    isTestMode: false
+  });
 
   const todaySectionRef = useRef<HTMLDivElement>(null);
   const selectedDateSectionRef = useRef<HTMLDivElement>(null);
@@ -210,7 +225,18 @@ export default function DashboardPage() {
   useEffect(() => {
     const initUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) setCurrentUserId(session.user.id);
+      if (session) {
+        setCurrentUserId(session.user.id);
+        
+        // Verifica se é admin
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('is_admin')
+          .eq('id', session.user.id)
+          .single();
+        
+        setIsAdmin(profile?.is_admin || false);
+      }
     };
     initUser();
   }, []);
@@ -221,9 +247,30 @@ export default function DashboardPage() {
     setLoadingMatches(true);
     fetchMatches();
 
+    // Busca informações do campeão (com modo de teste para admin)
+    const fetchChampionInfo = async () => {
+      if (currentUserId && activeCompetition?.id) {
+        const championData = await getUserChampionInfo(
+          activeCompetition.id,
+          currentUserId,
+          activeLeague?.id || null
+        );
+        
+        // Se for admin e não houver campeão real, mostra modo de teste
+        const isTestMode = isAdmin && !championData.champion;
+        
+        setChampionInfo({
+          ...championData,
+          isTestMode
+        });
+      }
+    };
+    fetchChampionInfo();
+
     // Polling para atualizar a cada 30 segundos
     const interval = setInterval(() => {
       fetchMatches();
+      fetchChampionInfo();
     }, 30000);
 
     // Subscribe para mudanças em tempo real
@@ -240,6 +287,7 @@ export default function DashboardPage() {
         (payload) => {
           console.log('🔄 Mudança detectada:', payload);
           fetchMatches();
+          fetchChampionInfo();
         }
       )
       .subscribe();
@@ -248,9 +296,9 @@ export default function DashboardPage() {
       clearInterval(interval);
       subscription.unsubscribe();
     };
-  }, [activeCompetition, currentUserId, fetchMatches]);
+  }, [activeCompetition, currentUserId, fetchMatches, isAdmin]);
 
-  // 2. CÁLCULO DE ESTATÍSTICAS
+  // CÁLCULO DE ESTATÍSTICAS
   useEffect(() => {
     if (!activeCompetition?.id || !currentUserId || matches.length === 0) return;
 
@@ -565,6 +613,79 @@ export default function DashboardPage() {
         <div className="fixed top-20 right-4 z-50 bg-slate-800/90 px-3 py-1.5 rounded-lg text-xs text-slate-400 flex items-center gap-2">
           <Loader2 size={12} className="animate-spin" />
           Atualizando...
+        </div>
+      )}
+
+      {/* Exibição do Campeão */}
+      {championInfo.champion && (
+        <div className="mb-2">
+          <ChampionDisplay
+            championName={championInfo.champion.userName}
+            championLogo={championInfo.champion.userLogo}
+            userPosition={championInfo.userPosition || undefined}
+            userName="Você"
+            isChampion={championInfo.isChampion}
+            leagueName={activeLeague?.name}
+            isTestMode={championInfo.isTestMode}
+          />
+        </div>
+      )}
+
+      {/* Modo de Teste para Admin - quando não há campeão real */}
+      {isAdmin && !championInfo.champion && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-500/20 rounded-full">
+              <Trophy size={20} className="text-blue-400" />
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase text-blue-400/70 tracking-wider flex items-center gap-1">
+                <Award size={12} className="text-blue-400" />
+                Modo de Teste - Admin
+              </p>
+              <p className="text-sm text-slate-300">
+                Nenhum campeão definido ainda. Complete a final para ver o resultado real.
+              </p>
+            </div>
+            <div className="ml-auto bg-blue-500/20 border border-blue-500/30 px-3 py-1.5 rounded-lg">
+              <span className="text-xs font-bold text-blue-400 flex items-center gap-1">
+                <Award size={12} />
+                Simulação
+              </span>
+            </div>
+          </div>
+          
+          {/* Preview do que será exibido quando houver campeão */}
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border border-yellow-500/20 rounded-lg p-3">
+              <div className="flex items-center gap-2">
+                <Crown size={16} className="text-yellow-500" />
+                <span className="text-xs font-bold text-yellow-500">Preview: Campeão</span>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="w-6 h-6 bg-slate-700 rounded-full flex items-center justify-center">
+                  <Trophy size={12} className="text-yellow-500" />
+                </div>
+                <span className="font-bold text-yellow-500 text-sm">[Nome do Campeão]</span>
+              </div>
+            </div>
+            
+            <div className="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3">
+              <div className="flex items-center gap-2">
+                <Medal size={16} className="text-slate-400" />
+                <span className="text-xs font-bold text-slate-400">Preview: Sua Posição</span>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-sm text-slate-300">
+                  Você ficou em <span className="font-bold text-white">#1º</span>
+                </span>
+                <span className="text-[10px] text-yellow-500 flex items-center gap-1">
+                  <Award size={10} className="text-yellow-500" />
+                  Ouro
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

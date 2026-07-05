@@ -27,7 +27,8 @@ import {
   Link as LinkIcon,
   Eye,
   EyeOff,
-  Paintbrush
+  Paintbrush,
+  Calendar
 } from 'lucide-react';
 
 type Competition = {
@@ -39,6 +40,8 @@ type Competition = {
   theme_final: string | null;
   is_active: boolean;
   competition_logo: string | null;
+  start_date: string | null;
+  end_date: string | null;
 };
 
 interface CompetitionsTabProps {
@@ -71,7 +74,9 @@ export function CompetitionsTab({ onUpdate }: CompetitionsTabProps) {
     theme_secondary: '#000000',
     theme_final: null,
     is_active: true,
-    competition_logo: null
+    competition_logo: null,
+    start_date: null,
+    end_date: null
   });
 
   useEffect(() => {
@@ -154,7 +159,9 @@ export function CompetitionsTab({ onUpdate }: CompetitionsTabProps) {
       theme_secondary: '#000000',
       theme_final: null,
       is_active: true,
-      competition_logo: null
+      competition_logo: null,
+      start_date: null,
+      end_date: null
     });
     setSelectedCompetition(null);
     setIsCreating(false);
@@ -170,7 +177,9 @@ export function CompetitionsTab({ onUpdate }: CompetitionsTabProps) {
       theme_secondary: comp.theme_secondary,
       theme_final: comp.theme_final,
       is_active: comp.is_active,
-      competition_logo: comp.competition_logo
+      competition_logo: comp.competition_logo,
+      start_date: comp.start_date,
+      end_date: comp.end_date
     });
     setIsCreating(false);
     setIsEditing(false);
@@ -200,7 +209,9 @@ export function CompetitionsTab({ onUpdate }: CompetitionsTabProps) {
         theme_secondary: selectedCompetition.theme_secondary,
         theme_final: selectedCompetition.theme_final,
         is_active: selectedCompetition.is_active,
-        competition_logo: selectedCompetition.competition_logo
+        competition_logo: selectedCompetition.competition_logo,
+        start_date: selectedCompetition.start_date,
+        end_date: selectedCompetition.end_date
       });
     }
   };
@@ -246,7 +257,9 @@ export function CompetitionsTab({ onUpdate }: CompetitionsTabProps) {
         theme_secondary: formData.theme_secondary!.trim(),
         theme_final: formData.theme_final?.trim() || null,
         is_active: formData.is_active !== undefined ? formData.is_active : true,
-        competition_logo: formData.competition_logo?.trim() || null
+        competition_logo: formData.competition_logo?.trim() || null,
+        start_date: formData.start_date || null,
+        end_date: formData.end_date || null
       };
 
       if (isCreating) {
@@ -402,6 +415,31 @@ export function CompetitionsTab({ onUpdate }: CompetitionsTabProps) {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Datas */}
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">
+              Data de Início
+            </label>
+            <input
+              type="date"
+              value={formData.start_date || ''}
+              onChange={(e) => setFormData({ ...formData, start_date: e.target.value || null })}
+              className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">
+              Data de Término
+            </label>
+            <input
+              type="date"
+              value={formData.end_date || ''}
+              onChange={(e) => setFormData({ ...formData, end_date: e.target.value || null })}
+              className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
+            />
           </div>
 
           {/* Logo da Competição */}
@@ -787,7 +825,7 @@ export function CompetitionsTab({ onUpdate }: CompetitionsTabProps) {
                       )}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium truncate">{comp.name}</span>
                         <span className="text-xs font-mono text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
                           {comp.slug}
@@ -810,6 +848,18 @@ export function CompetitionsTab({ onUpdate }: CompetitionsTabProps) {
                           />
                           {comp.theme_secondary}
                         </span>
+                        {comp.start_date && (
+                          <span className="flex items-center gap-1">
+                            <Calendar size={12} />
+                            {new Date(comp.start_date).toLocaleDateString('pt-BR')}
+                          </span>
+                        )}
+                        {comp.end_date && (
+                          <span className="flex items-center gap-1">
+                            <Calendar size={12} />
+                            {new Date(comp.end_date).toLocaleDateString('pt-BR')}
+                          </span>
+                        )}
                         {comp.is_active ? (
                           <span className="flex items-center gap-1 text-green-400">
                             <Eye size={12} />

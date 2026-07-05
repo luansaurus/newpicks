@@ -6,7 +6,7 @@ import { supabase } from '@/utils/supabase/client';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { CompetitionProvider, useCompetition } from '@/context/CompetitionContext';
 import { LeagueProvider, useLeague } from '@/context/LeagueContext';
-import { Loader2, Home, LogOut, ChartNoAxesCombinedIcon, Layers, ChevronDown, ChevronUp, Trophy, User, Shield, Settings } from 'lucide-react';
+import { Loader2, Home, LogOut, ChartNoAxesCombinedIcon, Layers, ChevronDown, ChevronUp, Trophy, User, Shield, Settings, History } from 'lucide-react';
 import Link from 'next/link';
 import { CompetitionSelector } from '@/components/shared/CompetitionSelector';
 import { LeagueSelector } from '@/components/shared/LeagueSelector';
@@ -15,7 +15,6 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   
-  // Contextos com fallback
   const themeContext = useTheme?.() || null;
   const competitionContext = useCompetition?.() || null;
   const leagueContext = useLeague?.() || null;
@@ -44,17 +43,31 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
         const { data, error } = await supabase
           .from('competitions')
           .select('id, name, competition_logo, slug, theme_primary, theme_secondary, is_active')
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .order('name', { ascending: true });
           
         if (!error && data && data.length > 0) {
           setCompetitions(data);
+          
           if (!activeCompetition && selectCompetition) {
             const saved = localStorage.getItem('active_competition_obj');
             if (saved) {
-              try { selectCompetition(JSON.parse(saved)); } 
-              catch (e) { selectCompetition(data[0]); }
+              try { 
+                const parsed = JSON.parse(saved);
+                const exists = data.some(c => c.id === parsed.id);
+                if (exists) {
+                  selectCompetition(parsed);
+                } else {
+                  const firstActive = data.find(c => c.is_active === true);
+                  if (firstActive) selectCompetition(firstActive);
+                }
+              } catch (e) { 
+                const firstActive = data.find(c => c.is_active === true);
+                if (firstActive) selectCompetition(firstActive);
+              }
             } else {
-              selectCompetition(data[0]);
+              const firstActive = data.find(c => c.is_active === true);
+              if (firstActive) selectCompetition(firstActive);
             }
           }
         }
@@ -153,6 +166,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
                 {isCompSelectorOpen && (
                   <div className="absolute top-full left-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
                     <CompetitionSelector competitions={competitions} onRowClick={() => setIsCompSelectorOpen(false)} />
+                    
                   </div>
                 )}
               </div>
@@ -186,17 +200,16 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
             </div>
 
             <nav className="hidden md:flex items-center gap-1 text-sm font-medium ml-4">
-              <Link href="/dashboard" className={`px-3 py-2 rounded-lg transition-colors ${pathname === '/dashboard' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
-                <Home size={20} style={{ color: pathname === '/dashboard' ? themeColor : '' }} />
-              Dashboard
+              <Link href="/dashboard" className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${pathname === '/dashboard' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
+                <Home size={16} style={{ color: pathname === '/dashboard' ? themeColor : '' }} />
+                <span>Dashboard</span>
               </Link>
               
-          
-              <Link href="/ranking" className={`px-3 py-2 rounded-lg transition-colors ${pathname === '/ranking' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
-                <ChartNoAxesCombinedIcon size={20} style={{ color: pathname === '/ranking' ? themeColor : '' }} />Ranking
+              <Link href="/ranking" className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${pathname === '/ranking' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
+                <ChartNoAxesCombinedIcon size={16} style={{ color: pathname === '/ranking' ? themeColor : '' }} />
+                <span>Ranking</span>
               </Link>
               
-              {/* ADMIN - Desktop */}
               {isAdmin && (
                 <Link 
                   href="/admin" 
@@ -206,8 +219,8 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
                       : 'text-slate-300 hover:text-white'
                   }`}
                 >
-                  <Settings  size={16} />
-                  Admin
+                  <Settings size={16} />
+                  <span>Admin</span>
                 </Link>
               )}
             </nav>
@@ -216,7 +229,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4">
             <div className="hidden sm:flex items-center gap-3 text-right">
               <div className="flex flex-col">
-                <span className="text-lg font-bold text-slate-200">@{userProfile?.username}</span>
+                <span className="text-sm font-bold text-slate-200">@{userProfile?.username}</span>
               </div>
               {userProfile?.team_logo && (
                 <img src={userProfile.team_logo} alt="Escudo" className="w-9 h-9 object-contain drop-shadow-lg" />
@@ -254,6 +267,16 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           <CompetitionSelector competitions={competitions} onRowClick={() => setIsCompSelectorOpen(false)} />
+          <div className="border-t border-slate-800 bg-black/20 p-2">
+            <Link 
+              href="/historical" 
+              onClick={() => setIsCompSelectorOpen(false)} 
+              className="block text-center text-xs text-primary font-bold uppercase p-3 hover:bg-white/5 rounded transition-colors flex items-center justify-center gap-2"
+            >
+              <History size={14} />
+              Ver Competições Históricas
+            </Link>
+          </div>
         </div>
       )}
 
@@ -297,7 +320,6 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
           <span>Ranking</span>
         </Link>
         
-        {/* ADMIN - Mobile */}
         {isAdmin && (
           <Link 
             href="/admin" 
