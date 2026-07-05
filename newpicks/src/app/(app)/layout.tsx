@@ -267,16 +267,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           <CompetitionSelector competitions={competitions} onRowClick={() => setIsCompSelectorOpen(false)} />
-          <div className="border-t border-slate-800 bg-black/20 p-2">
-            <Link 
-              href="/historical" 
-              onClick={() => setIsCompSelectorOpen(false)} 
-              className="block text-center text-xs text-primary font-bold uppercase p-3 hover:bg-white/5 rounded transition-colors flex items-center justify-center gap-2"
-            >
-              <History size={14} />
-              Ver Competições Históricas
-            </Link>
-          </div>
+         
         </div>
       )}
 
