@@ -82,8 +82,10 @@ export default function HistoricalPage() {
             const matchIds = (matches || []).map((m: any) => m.id);
 
             // Tenta encontrar o vencedor (time com mais pontos)
-            let winnerTeam = null;
-            let currentLeader = null;
+            let winnerTeamName: string | undefined = undefined;
+            let winnerTeamLogo: string | undefined = undefined;
+            let currentLeaderName: string | undefined = undefined;
+            let currentLeaderLogo: string | undefined = undefined;
 
             if (matches && matches.length > 0) {
               // Calcula pontuação dos times (3 pontos por vitória)
@@ -128,7 +130,8 @@ export default function HistoricalPage() {
               Object.entries(teamPoints).forEach(([id, data]) => {
                 if (data.points > maxPoints) {
                   maxPoints = data.points;
-                  winnerTeam = { id: parseInt(id), ...data };
+                  winnerTeamName = data.name;
+                  winnerTeamLogo = data.logo;
                 }
               });
 
@@ -168,7 +171,8 @@ export default function HistoricalPage() {
                   Object.entries(userScores).forEach(([uid, data]) => {
                     if (data.total > maxUserScore) {
                       maxUserScore = data.total;
-                      currentLeader = { ...data, id: uid };
+                      currentLeaderName = data.name;
+                      currentLeaderLogo = data.logo;
                     }
                   });
                 }
@@ -187,10 +191,10 @@ export default function HistoricalPage() {
               end_date: competition.end_date,
               total_matches: matches?.length || 0,
               total_teams: teams?.length || 0,
-              winner_team_name: winnerTeam?.name,
-              winner_team_logo: winnerTeam?.logo,
-              current_leader_name: currentLeader?.name,
-              current_leader_logo: currentLeader?.logo
+              winner_team_name: winnerTeamName,
+              winner_team_logo: winnerTeamLogo,
+              current_leader_name: currentLeaderName,
+              current_leader_logo: currentLeaderLogo
             };
           } catch (error) {
             console.error(`Erro ao processar competição ${competition.id}:`, error);
