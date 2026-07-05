@@ -229,10 +229,10 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
       )}
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[95vh]">
-            <div className="p-5 border-b border-border flex justify-between items-center bg-background/50 flex-shrink-0">
-              <h2 className="font-display font-bold text-lg uppercase tracking-tight">{editingLeague ? 'Editar Liga' : 'Nova Liga'}</h2>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[85vh] sm:max-h-[90vh]">
+            <div className="p-4 sm:p-5 border-b border-border flex justify-between items-center bg-background/50 flex-shrink-0">
+              <h2 className="font-display font-bold text-base sm:text-lg uppercase tracking-tight">{editingLeague ? 'Editar Liga' : 'Nova Liga'}</h2>
               <button onClick={() => {
                 setIsModalOpen(false);
                 setShowDeleteConfirm(false);
@@ -241,7 +241,7 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
 
             {showDeleteConfirm && editingLeague ? (
               // Tela de confirmação de exclusão
-              <div className="p-6 flex flex-col items-center text-center space-y-6 flex-1 justify-center">
+              <div className="p-6 flex flex-col items-center text-center space-y-6 flex-1 justify-center overflow-y-auto">
                 <div className="p-4 bg-red-500/10 rounded-full">
                   <Trash2 size={48} className="text-red-500" />
                 </div>
@@ -274,7 +274,7 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
             ) : (
               // Formulário normal
               <>
-                <div className="p-6 overflow-y-auto flex-1">
+                <div className="p-4 sm:p-6 overflow-y-auto flex-1">
                   <div className="space-y-4">
                     <div>
                       <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Nome da Liga</label>
@@ -322,21 +322,21 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
                   </div>
                 </div>
 
-                <div className="p-5 border-t border-border bg-background/50 flex justify-between items-center flex-shrink-0">
+                <div className="p-4 sm:p-5 border-t border-border bg-background/50 flex justify-between items-center flex-shrink-0 gap-2 flex-wrap">
                   {editingLeague && (
                     <button 
                       onClick={() => setShowDeleteConfirm(true)} 
-                      className="px-4 py-2 font-bold text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors flex items-center gap-2"
+                      className="px-3 py-2 font-bold text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors flex items-center gap-2"
                     >
                       <Trash2 size={16} /> Excluir Liga
                     </button>
                   )}
-                  <div className="flex gap-3 ml-auto">
+                  <div className="flex gap-2 ml-auto">
                     <button onClick={() => {
                       setIsModalOpen(false);
                       setShowDeleteConfirm(false);
                     }} className="px-4 py-2 font-bold text-sm text-slate-400 hover:text-white">Cancelar</button>
-                    <button onClick={handleSaveLeague} disabled={!formData.name} className="px-6 py-2 font-bold text-sm bg-primary text-slate-900 rounded-lg hover:brightness-110 flex items-center gap-2" style={{ backgroundColor: themeColor }}><Save size={16} /> Salvar</button>
+                    <button onClick={handleSaveLeague} disabled={!formData.name} className="px-5 py-2 font-bold text-sm bg-primary text-slate-900 rounded-lg hover:brightness-110 flex items-center gap-2" style={{ backgroundColor: themeColor }}><Save size={16} /> Salvar</button>
                   </div>
                 </div>
               </>

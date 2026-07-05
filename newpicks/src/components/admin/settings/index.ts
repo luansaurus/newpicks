@@ -4,3 +4,4 @@ export { TeamsTab } from './TeamsTab';
 export { UsersTab } from './UsersTab';
 export { RulesTab } from './RulesTab';
 export { CompetitionsTab } from './CompetitionsTab';
+export { MatchesCRUD } from './MatchManagerCRUD';

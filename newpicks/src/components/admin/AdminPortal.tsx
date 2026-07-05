@@ -11,7 +11,8 @@ import {
   X,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Calendar
 } from 'lucide-react';
 
 type PortalType = 'score' | 'matches' | 'settings' | null;
@@ -26,7 +27,7 @@ interface AdminPortalProps {
 
 export function AdminPortal({ 
   scoreManager, 
-  matchManager, 
+  matchManager,
   settingsManager,
   onSync, 
   syncLoading = false 
@@ -80,9 +81,9 @@ export function AdminPortal({
     },
     {
       id: 'matches',
-      label: 'Chaveamento',
-      icon: Award,
-      description: 'Gerenciar confrontos do mata-mata',
+      label: 'Jogos',
+      icon: Calendar,
+      description: 'Gerenciar jogos (CRUD + CSV)',
       color: 'purple'
     },
     {

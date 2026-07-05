@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import { 
   Trophy, 
@@ -11,7 +11,11 @@ import {
   AlertCircle,
   Shield,
   Edit2,
-  Lock
+  Lock,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  Layers
 } from 'lucide-react';
 
 type Team = {
@@ -19,6 +23,12 @@ type Team = {
   name: string;
   short_code: string;
   logo_url: string;
+};
+
+type Competition = {
+  id: number;
+  name: string;
+  is_active: boolean;
 };
 
 type Match = {
@@ -36,6 +46,7 @@ type Match = {
   status: string;
   phase: string;
   match_time: string;
+  competition_id?: number;
 };
 
 interface MatchManagerProps {
@@ -108,28 +119,64 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
   const [editingMatch, setEditingMatch] = useState<number | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set(['round_of_16', 'quarter_final', 'semi_final', 'final']));
+  const [selectedCompetition, setSelectedCompetition] = useState<number | 'all'>('all');
+  const [competitions, setCompetitions] = useState<Competition[]>([]);
+  const [showCompetitionFilter, setShowCompetitionFilter] = useState(false);
+  const [loadingCompetitions, setLoadingCompetitions] = useState(false);
 
   // Fallback logo
   const fallbackLogo = "https://ui-avatars.com/api/?name=TBA&background=1e293b&color=cbd5e1&bold=true";
 
-  // Mapa de times por nome
+  // Carregar competições - CORRIGIDO: useEffect em vez de useState
+  useEffect(() => {
+    const loadCompetitions = async () => {
+      setLoadingCompetitions(true);
+      try {
+        const { data, error } = await supabase
+          .from('competitions')
+          .select('id, name, is_active')
+          .order('name');
+        if (!error && data) setCompetitions(data);
+      } catch (error) {
+        console.error('Erro ao carregar competições:', error);
+      } finally {
+        setLoadingCompetitions(false);
+      }
+    };
+    loadCompetitions();
+  }, []);
+
+  // Filtrar matches por competição
+  const filteredMatches = useMemo(() => {
+    if (selectedCompetition === 'all') return matches;
+    return matches.filter(m => m.competition_id === selectedCompetition);
+  }, [matches, selectedCompetition]);
+
+  // Mapa de times por nome (usando matches filtrados)
   const teamsMap = useMemo(() => {
     const map: Record<string, Team> = {};
-    matches.forEach(m => {
+    filteredMatches.forEach(m => {
       if (m.home_team_data) map[m.home_team_data.name] = m.home_team_data;
       if (m.away_team_data) map[m.away_team_data.name] = m.away_team_data;
     });
     return map;
-  }, [matches]);
+  }, [filteredMatches]);
 
-  // Mapa de matches por ID
+  // Mapa de matches por ID (usando matches filtrados)
   const matchesById = useMemo(() => {
     const map: Record<number, Match> = {};
-    matches.forEach(m => {
+    filteredMatches.forEach(m => {
       map[m.id] = m;
     });
     return map;
-  }, [matches]);
+  }, [filteredMatches]);
+
+  // Filtra os matches do mata-mata (usando matches filtrados)
+  const bracketMatches = useMemo(() => {
+    return filteredMatches.filter(m => 
+      m.phase && PHASE_ORDER.includes(m.phase)
+    );
+  }, [filteredMatches]);
 
   // Função para pegar o time pelo nome
   const getTeamByName = (teamName: string): Team | null => {
@@ -175,13 +222,11 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
     const matchData = BRACKET_MAP[code];
     if (!matchData) return null;
 
-    // Se tem matchId definido, usa ele
     if (matchData.matchId) {
       return matchesById[matchData.matchId] || null;
     }
 
-    // Fallback: tenta encontrar pelo home_team ou away_team
-    const match = matches.find(m => {
+    const match = filteredMatches.find(m => {
       if (m.home_team === code || m.away_team === code) return true;
       if (m.home_team?.includes(code) || m.away_team?.includes(code)) return true;
       return false;
@@ -211,7 +256,6 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
       return [placeholder];
     }
 
-    // Para W, encontra o match correspondente e pega os times
     if (placeholder.startsWith('W')) {
       const match = findMatchByCode(placeholder);
       if (match) {
@@ -221,11 +265,9 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
         }
       }
       
-      // Se não encontrou o match diretamente, tenta resolver pelos componentes
       const matchData = BRACKET_MAP[placeholder];
       if (!matchData) return [];
 
-      // Tenta encontrar os matches dos componentes
       const homeMatch = findMatchByCode(matchData.home);
       const awayMatch = findMatchByCode(matchData.away);
       
@@ -238,7 +280,6 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
       }
     }
 
-    // Para RU, pega o perdedor do jogo correspondente
     if (placeholder.startsWith('RU')) {
       const matchCode = placeholder.replace('RU', 'W');
       const match = findMatchByCode(matchCode);
@@ -270,13 +311,13 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
     setMessage({ type: 'info', text: 'Salvando chaveamento...' });
 
     try {
-      const bracketMatches = matches.filter(m => 
+      const bracketMatchesList = filteredMatches.filter(m => 
         m.phase && ['round_of_32', 'round_of_16', 'quarter_final', 'semi_final', 'final', 'third'].includes(m.phase)
       );
 
       let updatedCount = 0;
 
-      for (const match of bracketMatches) {
+      for (const match of bracketMatchesList) {
         if (isMatchFinished(match)) continue;
 
         const code = Object.keys(BRACKET_MAP).find(key => {
@@ -289,7 +330,6 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
         const matchData = BRACKET_MAP[code];
         if (!matchData) continue;
 
-        // Tenta resolver os times
         const homeTeam = resolveTeam(matchData.home);
         const awayTeam = resolveTeam(matchData.away);
 
@@ -366,10 +406,12 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
     });
   };
 
-  // Filtra os matches do mata-mata
-  const bracketMatches = matches.filter(m => 
-    m.phase && PHASE_ORDER.includes(m.phase)
-  );
+  // Obter nome da competição selecionada
+  const getCompetitionName = () => {
+    if (selectedCompetition === 'all') return 'Todas as competições';
+    const comp = competitions.find(c => c.id === selectedCompetition);
+    return comp?.name || 'Todas as competições';
+  };
 
   return (
     <div className="space-y-6">
@@ -388,12 +430,87 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
         </div>
       )}
 
+      {/* Filtro por Competição */}
+      <div className="flex flex-wrap items-center gap-4 bg-slate-800/30 rounded-xl p-4 border border-slate-700/50">
+        <div className="flex items-center gap-2">
+          <Filter size={16} className="text-slate-400" />
+          <span className="text-sm font-medium text-slate-300">Filtrar por:</span>
+        </div>
+        
+        <div className="relative flex-1 min-w-[200px]">
+          <button
+            onClick={() => setShowCompetitionFilter(!showCompetitionFilter)}
+            className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm flex items-center justify-between hover:border-slate-500 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Layers size={14} className="text-blue-400" />
+              <span>{getCompetitionName()}</span>
+            </div>
+            {showCompetitionFilter ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+          
+          {showCompetitionFilter && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto">
+              <button
+                onClick={() => {
+                  setSelectedCompetition('all');
+                  setShowCompetitionFilter(false);
+                }}
+                className={`w-full px-4 py-2 text-left hover:bg-white/5 transition-colors ${
+                  selectedCompetition === 'all' ? 'bg-blue-500/20 text-blue-400' : 'text-white'
+                }`}
+              >
+                Todas as competições
+              </button>
+              {competitions.map(comp => (
+                <button
+                  key={comp.id}
+                  onClick={() => {
+                    setSelectedCompetition(comp.id);
+                    setShowCompetitionFilter(false);
+                  }}
+                  className={`w-full px-4 py-2 text-left hover:bg-white/5 transition-colors ${
+                    selectedCompetition === comp.id ? 'bg-blue-500/20 text-blue-400' : 'text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                    {comp.name}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="text-sm text-slate-400">
+          {bracketMatches.length} {bracketMatches.length === 1 ? 'jogo' : 'jogos'} no mata-mata
+        </div>
+
+        {selectedCompetition !== 'all' && (
+          <button
+            onClick={() => {
+              setSelectedCompetition('all');
+              setShowCompetitionFilter(false);
+            }}
+            className="px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
+          >
+            <XCircle size={14} />
+          </button>
+        )}
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <Trophy className="text-yellow-500" size={24} />
             Chaveamento do Mata-Mata
+            {selectedCompetition !== 'all' && (
+              <span className="text-sm font-normal text-blue-400">
+                • {getCompetitionName()}
+              </span>
+            )}
           </h2>
           <p className="text-slate-400 text-sm mt-1">
             Times em <span className="text-yellow-400">amarelo</span> são placeholders. 
@@ -451,7 +568,7 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
       {/* Lista de jogos por fase */}
       <div className="space-y-4">
         {PHASE_ORDER.map(phase => {
-          const phaseMatches = matches.filter(m => m.phase === phase);
+          const phaseMatches = filteredMatches.filter(m => m.phase === phase);
           if (phaseMatches.length === 0) return null;
 
           const isExpanded = expandedPhases.has(phase);
@@ -474,6 +591,12 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
                       <span className="text-green-400">{finishedCount} finalizados</span>
                       <span>•</span>
                       <span className="text-yellow-400">{phaseMatches.length - finishedCount} pendentes</span>
+                      {selectedCompetition !== 'all' && (
+                        <>
+                          <span>•</span>
+                          <span className="text-blue-400">{getCompetitionName()}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -704,8 +827,7 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
       <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700/50">
         <h4 className="text-sm font-bold mb-2 flex items-center gap-2">
           <Shield size={16} className="text-slate-400" />
-          Legenda
-        </h4>
+          Legenda        </h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-yellow-500/30 rounded border border-yellow-500/50"></div>

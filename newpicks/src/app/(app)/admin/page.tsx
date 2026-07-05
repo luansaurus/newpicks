@@ -30,6 +30,7 @@ type Match = {
   status: string;
   phase: string;
   match_time: string;
+  competition_id?: number;
 };
 
 export default function AdminPage() {
@@ -71,7 +72,7 @@ export default function AdminPage() {
     };
 
     checkAdmin();
-  }, []);
+  }, [router]);
 
   const loadMatches = async () => {
     try {
@@ -111,7 +112,6 @@ export default function AdminPage() {
       const response = await fetch('/api/sync-matches');
       const data = await response.json();
       
-      // Recarrega os dados após a sincronização
       await loadMatches();
       
       return {
