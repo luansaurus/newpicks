@@ -28,7 +28,7 @@ export default function RankingPage() {
   const [championInfo, setChampionInfo] = useState<{ 
     champion: ChampionInfo | null; 
     userPosition: number | null; 
-    isChampion: boolean 
+    isChampion: boolean;
   }>({
     champion: null,
     userPosition: null,

@@ -230,8 +230,8 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="p-5 border-b border-border flex justify-between items-center bg-background/50">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[95vh]">
+            <div className="p-5 border-b border-border flex justify-between items-center bg-background/50 flex-shrink-0">
               <h2 className="font-display font-bold text-lg uppercase tracking-tight">{editingLeague ? 'Editar Liga' : 'Nova Liga'}</h2>
               <button onClick={() => {
                 setIsModalOpen(false);
@@ -241,7 +241,7 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
 
             {showDeleteConfirm && editingLeague ? (
               // Tela de confirmação de exclusão
-              <div className="p-6 flex flex-col items-center text-center space-y-6">
+              <div className="p-6 flex flex-col items-center text-center space-y-6 flex-1 justify-center">
                 <div className="p-4 bg-red-500/10 rounded-full">
                   <Trash2 size={48} className="text-red-500" />
                 </div>
@@ -274,7 +274,7 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
             ) : (
               // Formulário normal
               <>
-                <div className="p-6 overflow-y-auto space-y-6">
+                <div className="p-6 overflow-y-auto flex-1">
                   <div className="space-y-4">
                     <div>
                       <label className="text-xs font-bold uppercase text-slate-400 mb-1 block">Nome da Liga</label>
@@ -295,7 +295,7 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
                     )}
                   </div>
 
-                  <div className="space-y-4 pt-4 border-t border-border">
+                  <div className="space-y-4 pt-4 mt-4 border-t border-border">
                     <h3 className="font-bold text-sm uppercase tracking-tight text-slate-300 mb-4">Regras de Pontuação</h3>
                     <div className="flex items-center gap-4">
                       <input type="checkbox" checked={formData.enable_exact} onChange={e => setFormData({...formData, enable_exact: e.target.checked})} className="w-5 h-5 accent-primary rounded" />
@@ -322,7 +322,7 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
                   </div>
                 </div>
 
-                <div className="p-5 border-t border-border bg-background/50 flex justify-between items-center">
+                <div className="p-5 border-t border-border bg-background/50 flex justify-between items-center flex-shrink-0">
                   {editingLeague && (
                     <button 
                       onClick={() => setShowDeleteConfirm(true)} 

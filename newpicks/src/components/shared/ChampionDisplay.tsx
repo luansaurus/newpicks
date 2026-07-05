@@ -9,7 +9,6 @@ interface ChampionDisplayProps {
   userName?: string;
   isChampion?: boolean;
   leagueName?: string;
-  isTestMode?: boolean;
 }
 
 export function ChampionDisplay({ 
@@ -18,8 +17,7 @@ export function ChampionDisplay({
   userPosition, 
   userName, 
   isChampion,
-  leagueName,
-  isTestMode = false
+  leagueName
 }: ChampionDisplayProps) {
   if (!championName) return null;
 
@@ -83,16 +81,6 @@ export function ChampionDisplay({
                 'Participação'
               )}
             </p>
-          </div>
-        )}
-
-        {/* Modo de Teste para Admin */}
-        {isTestMode && (
-          <div className="bg-blue-500/20 border border-blue-500/30 px-3 py-1.5 rounded-lg">
-            <span className="text-xs font-bold text-blue-400 flex items-center gap-1">
-              <Award size={12} />
-              Modo Teste
-            </span>
           </div>
         )}
       </div>
