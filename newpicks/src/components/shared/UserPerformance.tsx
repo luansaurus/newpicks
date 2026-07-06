@@ -1,4 +1,6 @@
-import { TrendingUp, ChevronUp, ChevronDown, Minus } from 'lucide-react';
+import { TrendingUp, ChevronUp, ChevronDown, Minus, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
+import { useTheme } from '@/context/ThemeContext';
 
 export interface UserStats {
   totalPoints: number;
@@ -14,18 +16,31 @@ interface UserPerformanceProps {
   themeColor?: string;
 }
 
-export function UserPerformance({ stats, themeColor }: UserPerformanceProps) {
+export function UserPerformance({ stats, themeColor: propThemeColor }: UserPerformanceProps) {
+  const { themeColor: contextThemeColor } = useTheme();
+  const themeColor = propThemeColor || contextThemeColor || 'var(--color-primary)';
+
   return (
     <div className="bg-card border border-border p-6 rounded-2xl shadow-sm sticky top-24">
-      <h2 className="text-lg font-display font-bold mb-6 uppercase tracking-tight flex items-center gap-2">
-        <TrendingUp size={18} style={{ color: themeColor || 'var(--color-primary)' }} /> Meu Desempenho
-      </h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-lg font-display font-bold uppercase tracking-tight flex items-center gap-2">
+          <TrendingUp size={18} style={{ color: themeColor }} /> Meu Desempenho
+        </h2>
+        <Link 
+          href="/performance" 
+          className="text-xs font-bold uppercase tracking-wider flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors"
+          style={{ color: themeColor }}
+        >
+          Ver detalhes
+          <ArrowRight size={14} />
+        </Link>
+      </div>
       
       {/* CARD DE POSIÇÃO NO RANKING */}
       <div className="flex items-center justify-between bg-background/50 p-4 rounded-xl border border-border/50 mb-6">
         <div className="flex flex-col">
           <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider">Posição Atual</span>
-          <span className="text-3xl sm:text-4xl font-display font-bold" style={{ color: themeColor || 'var(--color-primary)' }}>
+          <span className="text-3xl sm:text-4xl font-display font-bold" style={{ color: themeColor }}>
             {stats.rank > 0 ? `${stats.rank}º` : '-'}
           </span>
         </div>
