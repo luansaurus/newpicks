@@ -378,10 +378,6 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
           <span>Ranking</span>
         </Link>
 
-        <Link href="/historical" onClick={handleReload} className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/historical' ? 'text-white' : 'text-slate-400'}`}>
-          <ChartNoAxesCombinedIcon size={20} style={{ color: pathname === '/historical' ? themeColor : '' }} />
-          <span>Histórico</span>
-        </Link>
         
         {isAdmin && (
           <Link 
