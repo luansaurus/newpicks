@@ -1,15 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { CompetitionProvider, useCompetition } from '@/context/CompetitionContext';
 import { LeagueProvider, useLeague } from '@/context/LeagueContext';
-import { Loader2, Home, LogOut, ChartNoAxesCombinedIcon, Layers, ChevronDown, ChevronUp, Trophy, User, Shield, Settings, History } from 'lucide-react';
+import { ColorProvider } from '@/context/ColorContext';
+import { Loader2, Home, LogOut, ChartNoAxesCombinedIcon, Layers, ChevronDown, ChevronUp, Trophy, User, Shield, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { CompetitionSelector } from '@/components/shared/CompetitionSelector';
 import { LeagueSelector } from '@/components/shared/LeagueSelector';
+import { BackToTop } from '@/components/ui/BackToTop';
+import { GoToBottom } from '@/components/ui/GoToBottom';
 
 function LayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -36,6 +39,25 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
     team_logo?: string;
     team_color?: string; 
   } | null>(null);
+
+  // Refs para os seletores
+  const compSelectorRef = useRef<HTMLDivElement>(null);
+  const leagueSelectorRef = useRef<HTMLDivElement>(null);
+
+  // Fechar seletores ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (compSelectorRef.current && !compSelectorRef.current.contains(event.target as Node)) {
+        setIsCompSelectorOpen(false);
+      }
+      if (leagueSelectorRef.current && !leagueSelectorRef.current.contains(event.target as Node)) {
+        setIsLeagueSelectorOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const fetchCompetitions = async () => {
@@ -130,6 +152,11 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
 
   const themeColor = getSafeColor(userProfile?.team_color || themeContext?.themeColor || '#e11d48');
 
+  // Função para recarregar a página atual
+  const handleReload = () => {
+    router.refresh();
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
@@ -143,17 +170,18 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
       <header className="border-b border-slate-800/20 sticky top-0 z-50 backdrop-blur-md shadow-md bg-slate-950/90">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4 sm:gap-6">
-            <Link href="/dashboard" className="flex items-center gap-2 font-display font-bold text-lg sm:text-xl uppercase tracking-wider">
+            <Link href="/dashboard" onClick={handleReload} className="flex items-center gap-2 font-display font-bold text-lg sm:text-xl uppercase tracking-wider">
               Arena<span style={{ color: themeColor }}>Picks</span>
             </Link>
             
             <div className="relative hidden md:flex items-center gap-2">
               {/* COMPETITION SELECTOR */}
-              <div className="relative">
+              <div className="relative" ref={compSelectorRef}>
                 <button 
                   onClick={() => { 
                     setIsCompSelectorOpen(!isCompSelectorOpen); 
                     setIsLeagueSelectorOpen(false); 
+                    handleReload();
                   }} 
                   className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors text-sm font-medium w-48"
                 >
@@ -165,18 +193,22 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
                 </button>
                 {isCompSelectorOpen && (
                   <div className="absolute top-full left-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
-                    <CompetitionSelector competitions={competitions} onRowClick={() => setIsCompSelectorOpen(false)} />
-                    
+                    <CompetitionSelector competitions={competitions} onRowClick={() => {
+                      setIsCompSelectorOpen(false);
+                      handleReload();
+                    }} />
+                   
                   </div>
                 )}
               </div>
 
               {/* LEAGUE SELECTOR */}
-              <div className="relative">
+              <div className="relative" ref={leagueSelectorRef}>
                 <button 
                   onClick={() => { 
                     setIsLeagueSelectorOpen(!isLeagueSelectorOpen); 
-                    setIsCompSelectorOpen(false); 
+                    setIsCompSelectorOpen(false);
+                    handleReload();
                   }} 
                   className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors text-sm font-medium w-48"
                 >
@@ -188,9 +220,15 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
                 </button>
                 {isLeagueSelectorOpen && activeCompetition?.id && currentUserId && (
                   <div className="absolute top-full left-0 mt-2 w-64 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
-                    <LeagueSelector competitionId={activeCompetition.id} currentUserId={currentUserId} onRowClick={() => setIsLeagueSelectorOpen(false)} />
+                    <LeagueSelector competitionId={activeCompetition.id} currentUserId={currentUserId} onRowClick={() => {
+                      setIsLeagueSelectorOpen(false);
+                      handleReload();
+                    }} />
                     <div className="border-t border-slate-800 bg-black/20 p-2">
-                      <Link href="/leagues" onClick={() => setIsLeagueSelectorOpen(false)} className="block text-center text-xs text-blue-500 font-bold uppercase p-2 hover:bg-white/5 rounded transition-colors">
+                      <Link href="/leagues" onClick={() => {
+                        setIsLeagueSelectorOpen(false);
+                        handleReload();
+                      }} className="block text-center text-xs text-blue-500 font-bold uppercase p-2 hover:bg-white/5 rounded transition-colors">
                         Gerenciar Ligas
                       </Link>
                     </div>
@@ -200,19 +238,19 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
             </div>
 
             <nav className="hidden md:flex items-center gap-1 text-sm font-medium ml-4">
-              <Link href="/dashboard" className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${pathname === '/dashboard' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
+              <Link href="/dashboard" onClick={handleReload} className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${pathname === '/dashboard' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
                 <Home size={16} style={{ color: pathname === '/dashboard' ? themeColor : '' }} />
                 <span>Dashboard</span>
               </Link>
               
-              <Link href="/ranking" className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${pathname === '/ranking' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
+              <Link href="/ranking" onClick={handleReload} className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${pathname === '/ranking' ? 'bg-white/10 text-white' : 'text-slate-300 hover:text-white'}`}>
                 <ChartNoAxesCombinedIcon size={16} style={{ color: pathname === '/ranking' ? themeColor : '' }} />
                 <span>Ranking</span>
               </Link>
-              
               {isAdmin && (
                 <Link 
                   href="/admin" 
+                  onClick={handleReload}
                   className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-1 ${
                     pathname === '/admin' 
                       ? 'bg-white/10 text-white' 
@@ -238,6 +276,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
             
             <Link 
               href="/profile" 
+              onClick={handleReload}
               className={`p-2 rounded-lg transition-colors ${pathname === '/profile' ? 'bg-white/10' : 'hover:bg-white/5'}`}
             >
               <User size={20} style={{ color: pathname === '/profile' ? themeColor : '' }} />
@@ -257,17 +296,28 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
+      {/* Botões de navegação - posicionados com espaçamento adequado */}
+      <div className="fixed bottom-24 right-6 z-50 flex flex-col gap-3">
+        <BackToTop />
+        <GoToBottom />
+      </div>
+
       {/* MODAL MOBILE COMPETIÇÃO */}
       {isCompSelectorOpen && (
         <div className="md:hidden fixed bottom-16 left-0 right-0 bg-slate-900 border-t border-slate-800/20 z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] animate-in slide-in-from-bottom-2">
           <div className="p-3 border-b border-slate-800/10 font-bold text-xs text-slate-400 uppercase tracking-wider text-center flex items-center justify-between">
             <span>Selecione a Competição</span>
-            <button onClick={() => setIsCompSelectorOpen(false)} className="p-1 hover:bg-white/10 rounded">
+            <button onClick={() => {
+              setIsCompSelectorOpen(false);
+              handleReload();
+            }} className="p-1 hover:bg-white/10 rounded">
               <ChevronDown size={16} />
             </button>
           </div>
-          <CompetitionSelector competitions={competitions} onRowClick={() => setIsCompSelectorOpen(false)} />
-         
+          <CompetitionSelector competitions={competitions} onRowClick={() => {
+            setIsCompSelectorOpen(false);
+            handleReload();
+          }} />
         </div>
       )}
 
@@ -276,13 +326,22 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
         <div className="md:hidden fixed bottom-16 left-0 right-0 bg-slate-900 border-t border-slate-800/20 z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] animate-in slide-in-from-bottom-2">
           <div className="p-3 border-b border-slate-800/10 font-bold text-xs text-slate-400 uppercase tracking-wider text-center flex items-center justify-between">
             <span>Selecione a Liga</span>
-            <button onClick={() => setIsLeagueSelectorOpen(false)} className="p-1 hover:bg-white/10 rounded">
+            <button onClick={() => {
+              setIsLeagueSelectorOpen(false);
+              handleReload();
+            }} className="p-1 hover:bg-white/10 rounded">
               <ChevronDown size={16} />
             </button>
           </div>
-          <LeagueSelector competitionId={activeCompetition.id} currentUserId={currentUserId} onRowClick={() => setIsLeagueSelectorOpen(false)} />
+          <LeagueSelector competitionId={activeCompetition.id} currentUserId={currentUserId} onRowClick={() => {
+            setIsLeagueSelectorOpen(false);
+            handleReload();
+          }} />
           <div className="border-t border-slate-800 bg-black/20 p-2">
-            <Link href="/leagues" onClick={() => setIsLeagueSelectorOpen(false)} className="block text-center text-xs text-blue-500 font-bold uppercase p-3 hover:bg-white/5 rounded transition-colors">
+            <Link href="/leagues" onClick={() => {
+              setIsLeagueSelectorOpen(false);
+              handleReload();
+            }} className="block text-center text-xs text-blue-500 font-bold uppercase p-3 hover:bg-white/5 rounded transition-colors">
               Gerenciar / Criar Ligas
             </Link>
           </div>
@@ -291,29 +350,43 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
 
       {/* NAV MOBILE */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t border-slate-800/20 z-50 h-16 flex items-center justify-around px-2 shadow-2xl backdrop-blur-md bg-slate-950/95">
-        <Link href="/dashboard" className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/dashboard' ? 'text-white' : 'text-slate-400'}`}>
+        <Link href="/dashboard" onClick={handleReload} className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/dashboard' ? 'text-white' : 'text-slate-400'}`}>
           <Home size={20} style={{ color: pathname === '/dashboard' ? themeColor : '' }} />
           <span>Dashboard</span>
         </Link>
         
-        <button onClick={() => { setIsCompSelectorOpen(!isCompSelectorOpen); setIsLeagueSelectorOpen(false); }} className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${isCompSelectorOpen ? 'text-white' : 'text-slate-400'}`}>
+        <button onClick={() => { 
+          setIsCompSelectorOpen(!isCompSelectorOpen); 
+          setIsLeagueSelectorOpen(false);
+          handleReload();
+        }} className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${isCompSelectorOpen ? 'text-white' : 'text-slate-400'}`}>
           <Layers size={20} style={{ color: isCompSelectorOpen ? themeColor : '' }} />
           <span>Torneio</span>
         </button>
         
-        <button onClick={() => { setIsLeagueSelectorOpen(!isLeagueSelectorOpen); setIsCompSelectorOpen(false); }} className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${isLeagueSelectorOpen || pathname === '/leagues' ? 'text-white' : 'text-slate-400'}`}>
+        <button onClick={() => { 
+          setIsLeagueSelectorOpen(!isLeagueSelectorOpen); 
+          setIsCompSelectorOpen(false);
+          handleReload();
+        }} className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${isLeagueSelectorOpen || pathname === '/leagues' ? 'text-white' : 'text-slate-400'}`}>
           <Trophy size={20} style={{ color: isLeagueSelectorOpen || pathname === '/leagues' ? themeColor : '' }} />
           <span>Ligas</span>
         </button>
         
-        <Link href="/ranking" className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/ranking' ? 'text-white' : 'text-slate-400'}`}>
+        <Link href="/ranking" onClick={handleReload} className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/ranking' ? 'text-white' : 'text-slate-400'}`}>
           <ChartNoAxesCombinedIcon size={20} style={{ color: pathname === '/ranking' ? themeColor : '' }} />
           <span>Ranking</span>
+        </Link>
+
+        <Link href="/historical" onClick={handleReload} className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/historical' ? 'text-white' : 'text-slate-400'}`}>
+          <ChartNoAxesCombinedIcon size={20} style={{ color: pathname === '/historical' ? themeColor : '' }} />
+          <span>Histórico</span>
         </Link>
         
         {isAdmin && (
           <Link 
             href="/admin" 
+            onClick={handleReload}
             className={`flex flex-col items-center gap-1 text-[10px] font-bold uppercase ${pathname === '/admin' ? 'text-white' : 'text-slate-400'}`}
           >
             <Shield size={20} style={{ color: pathname === '/admin' ? themeColor : '' }} />
@@ -328,11 +401,13 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider>
-      <CompetitionProvider>
-        <LeagueProvider>
-          <LayoutContent>{children}</LayoutContent>
-        </LeagueProvider>
-      </CompetitionProvider>
+      <ColorProvider>
+        <CompetitionProvider>
+          <LeagueProvider>
+            <LayoutContent>{children}</LayoutContent>
+          </LeagueProvider>
+        </CompetitionProvider>
+      </ColorProvider>
     </ThemeProvider>
   );
 }
