@@ -1,4 +1,4 @@
-import { Clock, Radio, Award, X, Lock } from 'lucide-react';
+import { Clock, Radio, Award, X, Lock, Trophy } from 'lucide-react';
 
 export type MatchStatus = 'SCHEDULED' | 'IN_PLAY' | 'FINISHED';
 
@@ -237,11 +237,13 @@ export function MatchCard({
                 <div className="flex flex-col items-center gap-1 mt-1 w-full">
                   <span className="text-[10px] sm:text-xs text-slate-300 font-medium bg-slate-950/60 px-3 py-1 rounded-md border border-slate-800 backdrop-blur-sm shadow-sm">
                     Palpite: <strong className="text-white">{userGuess.home_guess} : {userGuess.away_guess}</strong>
+                    <br />
                     {userGuess.penalty_winner_guess && (
                       <span className="ml-1 text-xs">
+                        <Trophy size={12} className="inline-block mr-1" />
                         {userGuess.penalty_winner_guess === 'home' 
-                          ? `🏆 ${homeTeam?.short_code || 'Casa'} nos pênaltis` 
-                          : `🏆 ${awayTeam?.short_code || 'Fora'} nos pênaltis`}
+                          ? `${homeTeam?.short_code || 'Casa'} nos pênaltis` 
+                          : `${awayTeam?.short_code || 'Fora'} nos pênaltis`}
                       </span>
                     )}
                   </span>

@@ -127,7 +127,7 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
   // Fallback logo
   const fallbackLogo = "https://ui-avatars.com/api/?name=TBA&background=1e293b&color=cbd5e1&bold=true";
 
-  // Carregar competições - CORRIGIDO: useEffect em vez de useState
+  // Carregar competições
   useEffect(() => {
     const loadCompetitions = async () => {
       setLoadingCompetitions(true);
@@ -413,6 +413,59 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
     return comp?.name || 'Todas as competições';
   };
 
+  // Função para obter os times possíveis para edição (APENAS os 2 que podem avançar)
+  const getEditableTeams = (match: Match): string[] => {
+    const possibleTeams = new Set<string>();
+    
+    // Verifica se o match tem um placeholder
+    const homePlaceholder = isPlaceholder(match.home_team) ? match.home_team : null;
+    const awayPlaceholder = isPlaceholder(match.away_team) ? match.away_team : null;
+    
+    if (homePlaceholder) {
+      const teams = getPossibleTeams(homePlaceholder);
+      teams.forEach(t => possibleTeams.add(t));
+    }
+    
+    if (awayPlaceholder) {
+      const teams = getPossibleTeams(awayPlaceholder);
+      teams.forEach(t => possibleTeams.add(t));
+    }
+    
+    // Se não tem placeholders, significa que já tem times definidos
+    // Nesse caso, mostra apenas os times que podem substituir (os vencedores dos jogos anteriores)
+    if (!homePlaceholder && !awayPlaceholder) {
+      // Para descobrir quais times podem aparecer aqui, verificamos os placeholders que alimentam este jogo
+      const code = Object.keys(BRACKET_MAP).find(key => {
+        const data = BRACKET_MAP[key];
+        return data.home === match.home_team || data.away === match.away_team;
+      });
+      
+      if (code) {
+        const matchData = BRACKET_MAP[code];
+        if (matchData) {
+          // Busca os times que podem vir dos placeholders
+          const homeMatch = findMatchByCode(matchData.home);
+          const awayMatch = findMatchByCode(matchData.away);
+          
+          if (homeMatch) {
+            const homeTeams = getTeamsFromMatch(homeMatch);
+            homeTeams.forEach(t => possibleTeams.add(t));
+          }
+          if (awayMatch) {
+            const awayTeams = getTeamsFromMatch(awayMatch);
+            awayTeams.forEach(t => possibleTeams.add(t));
+          }
+        }
+      }
+      
+      // Adiciona os times atuais também
+      if (match.home_team) possibleTeams.add(match.home_team);
+      if (match.away_team) possibleTeams.add(match.away_team);
+    }
+    
+    return Array.from(possibleTeams).sort();
+  };
+
   return (
     <div className="space-y-6">
       {message && (
@@ -514,7 +567,7 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
           </h2>
           <p className="text-slate-400 text-sm mt-1">
             Times em <span className="text-yellow-400">amarelo</span> são placeholders. 
-            Abaixo de cada placeholder, os times possíveis para aquela vaga.
+            Clique em <span className="text-blue-400">Editar</span> para modificar qualquer time.
           </p>
         </div>
         
@@ -623,6 +676,9 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
                       
                       const possibleHomeTeams = isHomePlaceholder ? getPossibleTeams(match.home_team) : [match.home_team];
                       const possibleAwayTeams = isAwayPlaceholder ? getPossibleTeams(match.away_team) : [match.away_team];
+                      
+                      // Para edição, mostra apenas os times que podem realmente avançar (2 times)
+                      const editableTeams = getEditableTeams(match);
 
                       const homeTeam = isHomePlaceholder && possibleHomeTeams.length === 1 ? possibleHomeTeams[0] : match.home_team;
                       const awayTeam = isAwayPlaceholder && possibleAwayTeams.length === 1 ? possibleAwayTeams[0] : match.away_team;
@@ -679,7 +735,7 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
                                     }}
                                   />
                                 </div>
-                                {isEditing && isHomePlaceholder ? (
+                                {isEditing ? (
                                   <select
                                     value={match.home_team}
                                     onChange={(e) => {
@@ -687,10 +743,13 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
                                     }}
                                     className="flex-1 p-1 text-xs rounded bg-slate-900 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
                                   >
-                                    <option value={match.home_team}>{match.home_team}</option>
-                                    {possibleHomeTeams.map(team => (
-                                      <option key={team} value={team}>{team}</option>
-                                    ))}
+                                    <option value={match.home_team}>⚡ {match.home_team}</option>
+                                    {editableTeams
+                                      .filter(team => team !== match.home_team)
+                                      .map(team => (
+                                        <option key={team} value={team}>{team}</option>
+                                      ))
+                                    }
                                   </select>
                                 ) : (
                                   <span className={`text-xs font-bold truncate ${
@@ -699,12 +758,12 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
                                     {isHomePlaceholder ? (
                                       <>
                                         {homeCode}
-                                        {possibleHomeTeams.length > 1 && !isEditing && (
+                                        {possibleHomeTeams.length > 1 && (
                                           <span className="block text-[8px] text-slate-500 font-normal">
                                             Possíveis: {possibleHomeTeams.join(' ou ')}
                                           </span>
                                         )}
-                                        {possibleHomeTeams.length === 1 && !isEditing && (
+                                        {possibleHomeTeams.length === 1 && (
                                           <span className="block text-[8px] text-green-500 font-normal">
                                             {possibleHomeTeams[0]}
                                           </span>
@@ -739,7 +798,7 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
                             {/* Fora */}
                             <div className="flex-1">
                               <div className="flex items-center gap-2 justify-center">
-                                {isEditing && isAwayPlaceholder ? (
+                                {isEditing ? (
                                   <select
                                     value={match.away_team}
                                     onChange={(e) => {
@@ -747,10 +806,13 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
                                     }}
                                     className="flex-1 p-1 text-xs rounded bg-slate-900 border border-slate-700 text-white focus:border-blue-500 focus:outline-none"
                                   >
-                                    <option value={match.away_team}>{match.away_team}</option>
-                                    {possibleAwayTeams.map(team => (
-                                      <option key={team} value={team}>{team}</option>
-                                    ))}
+                                    <option value={match.away_team}>⚡ {match.away_team}</option>
+                                    {editableTeams
+                                      .filter(team => team !== match.away_team)
+                                      .map(team => (
+                                        <option key={team} value={team}>{team}</option>
+                                      ))
+                                    }
                                   </select>
                                 ) : (
                                   <span className={`text-xs font-bold truncate ${
@@ -759,12 +821,12 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
                                     {isAwayPlaceholder ? (
                                       <>
                                         {awayCode}
-                                        {possibleAwayTeams.length > 1 && !isEditing && (
+                                        {possibleAwayTeams.length > 1 && (
                                           <span className="block text-[8px] text-slate-500 font-normal">
                                             Possíveis: {possibleAwayTeams.join(' ou ')}
                                           </span>
                                         )}
-                                        {possibleAwayTeams.length === 1 && !isEditing && (
+                                        {possibleAwayTeams.length === 1 && (
                                           <span className="block text-[8px] text-green-500 font-normal">
                                             {possibleAwayTeams[0]}
                                           </span>
@@ -803,7 +865,10 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
                             {isEditing && (
                               <>
                                 <button
-                                  onClick={() => setEditingMatch(null)}
+                                  onClick={() => {
+                                    setEditingMatch(null);
+                                    onMatchUpdate();
+                                  }}
                                   className="flex-1 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                                 >
                                   <Lock size={14} />
@@ -827,7 +892,8 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
       <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700/50">
         <h4 className="text-sm font-bold mb-2 flex items-center gap-2">
           <Shield size={16} className="text-slate-400" />
-          Legenda        </h4>
+          Legenda
+        </h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-yellow-500/30 rounded border border-yellow-500/50"></div>

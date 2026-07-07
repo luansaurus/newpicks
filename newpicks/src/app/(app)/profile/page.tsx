@@ -188,6 +188,13 @@ export default function ProfilePage() {
     allCountries.push('Outros');
   }
 
+  // Ordena países alfabeticamente, garantindo que "Outros" seja o último
+  allCountries.sort((a, b) => {
+    if (a === 'Outros') return 1;
+    if (b === 'Outros') return -1;
+    return a.localeCompare(b);
+  });
+
   // Função para alternar expansão de país
   const toggleCountry = (country: string) => {
     setExpandedCountries(prev => {
@@ -242,18 +249,11 @@ export default function ProfilePage() {
       const normalizedType = normalizeTeamType(team.type);
       setSelectedType(normalizedType);
       
-      if (normalizedType === 'club') {
-        setSelectedCountry(team.country_code);
-        setSelectedConfederation(null);
-      } else {
-        setSelectedCountry(null);
-        setSelectedConfederation(team.confederation || null);
-      }
+      // NÃO alteramos o país selecionado ao clicar em um time
+      // Mantemos o país atual, não forçamos a seleção
     } else {
       setSelectedTeam(null);
-      setSelectedType(null);
-      setSelectedCountry(null);
-      setSelectedConfederation(null);
+      // NÃO resetamos selectedType, selectedCountry, selectedConfederation
     }
   };
 
