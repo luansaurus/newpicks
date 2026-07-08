@@ -235,7 +235,6 @@ export default function DashboardPage() {
     setLoadingMatches(true);
     fetchMatches();
 
-    // Busca informações do campeão
     const fetchChampionInfo = async () => {
       if (currentUserId && activeCompetition?.id) {
         const championData = await getUserChampionInfo(
@@ -248,13 +247,11 @@ export default function DashboardPage() {
     };
     fetchChampionInfo();
 
-    // Polling para atualizar a cada 30 segundos
     const interval = setInterval(() => {
       fetchMatches();
       fetchChampionInfo();
     }, 30000);
 
-    // Subscribe para mudanças em tempo real
     const subscription = supabase
       .channel('matches-changes')
       .on(
@@ -279,19 +276,52 @@ export default function DashboardPage() {
     };
   }, [activeCompetition, currentUserId, fetchMatches]);
 
-  // CÁLCULO DE ESTATÍSTICAS
+  // CÁLCULO DE ESTATÍSTICAS COM PAGINAÇÃO
   useEffect(() => {
     if (!activeCompetition?.id || !currentUserId || matches.length === 0) return;
 
     const calculateStats = async () => {
       try {
         const matchIds = matches.map(m => m.id);
-        const { data: allGuessesData } = await supabase
-          .from('guesses')
-          .select('user_id, match_id, points_awarded, home_guess, away_guess, penalty_winner_guess')
-          .in('match_id', matchIds);
+        
+        // Paginação automática para buscar todos os palpites da liga
+        let allGuessesData: any[] = [];
+        let hasMore = true;
+        let offset = 0;
+        const PAGE_SIZE = 1000;
 
-        if (!allGuessesData) return;
+        while (hasMore) {
+          const { data: chunk, error } = await supabase
+            .from('guesses')
+            .select('user_id, match_id, points_awarded, home_guess, away_guess, penalty_winner_guess, user_profile:profiles!guesses_user_id_fkey(is_test)')
+            .in('match_id', matchIds)
+            .range(offset, offset + PAGE_SIZE - 1);
+
+          if (error) {
+            console.error("Erro na busca de palpites (Dashboard):", error);
+            break;
+          }
+
+          if (chunk && chunk.length > 0) {
+            allGuessesData = [...allGuessesData, ...chunk];
+            offset += PAGE_SIZE;
+            if (chunk.length < PAGE_SIZE) {
+              hasMore = false;
+            }
+          } else {
+            hasMore = false;
+          }
+        }
+
+        // Remoção de duplicatas (segurança)
+        const uniqueGuesses = new Map();
+        allGuessesData.forEach(g => {
+          const key = `${g.user_id}-${g.match_id}`;
+          if (!uniqueGuesses.has(key)) {
+            uniqueGuesses.set(key, g);
+          }
+        });
+        const uniqueGuessesArray = Array.from(uniqueGuesses.values());
 
         const validUsers = new Set<string>();
         if (activeLeague) {
@@ -330,7 +360,11 @@ export default function DashboardPage() {
 
         let myTotal = 0; let myToday = 0; let myLastDay = 0; let myExactScores = 0;
 
-        allGuessesData.forEach(guess => {
+        uniqueGuessesArray.forEach(guess => {
+          // Filtra usuários de teste
+          const profile = Array.isArray(guess.user_profile) ? guess.user_profile[0] : guess.user_profile;
+          if (profile?.is_test) return;
+
           const uid = guess.user_id;
           
           if (activeLeague && !validUsers.has(uid)) return;
