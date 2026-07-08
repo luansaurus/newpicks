@@ -40,13 +40,17 @@ export default function RankingPage() {
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) setCurrentUserId(session.user.id);
-      await fetchRanking();
+      if (session) {
+        setCurrentUserId(session.user.id);
+        await fetchRanking(session.user.id);
+      } else {
+        setLoading(false);
+      }
     };
     init();
   }, [activeCompetition, activeLeague]);
 
-  const fetchRanking = async () => {
+  const fetchRanking = async (userId: string) => {
     if (!activeCompetition?.id) return;
     setLoading(true);
 
@@ -78,7 +82,7 @@ export default function RankingPage() {
         .select('id, match_time, status, home_score, away_score, home_penalty, away_penalty, phase, competition_id, home_team, away_team, home_team_rel:teams!home_team_id(id, name, short_code, logo_url), away_team_rel:teams!away_team_id(id, name, short_code, logo_url)')
         .eq('competition_id', activeCompetition.id)
         .order('match_time', { ascending: true })
-        .limit(1000);
+        .limit(1000); 
 
       const matchDataObj: Record<number, any> = {};
       const matchesWithGuesses: Record<number, any> = {}; 
@@ -103,16 +107,51 @@ export default function RankingPage() {
         };
       });
 
-      const { data: allGuesses } = await supabase
-        .from('guesses')
-        .select(`user_id, match_id, points_awarded, home_guess, away_guess, penalty_winner_guess, user_profile:profiles!guesses_user_id_fkey(username, teams(logo_url), is_test)`)
-        .in('match_id', matchIds)
-        .limit(20000); 
+      // =======================================================================
+      // A CORREÇÃO MÁGICA: Paginação robusta para driblar o limite do Supabase
+      // =======================================================================
+      let allGuesses: any[] = [];
+      let hasMore = true;
+      let offset = 0;
+      const PAGE_SIZE = 1000;
+
+      while (hasMore) {
+        const { data: chunk, error } = await supabase
+          .from('guesses')
+          .select(`user_id, match_id, points_awarded, home_guess, away_guess, penalty_winner_guess, user_profile:profiles!guesses_user_id_fkey(username, teams(logo_url), is_test)`)
+          .in('match_id', matchIds)
+          .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+          console.error("Erro na busca de palpites:", error);
+          break;
+        }
+
+        if (chunk && chunk.length > 0) {
+          allGuesses = [...allGuesses, ...chunk];
+          offset += PAGE_SIZE;
+          if (chunk.length < PAGE_SIZE) {
+            hasMore = false; // Bateu no final
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      // Remove duplicatas
+      const uniqueGuesses = new Map();
+      allGuesses.forEach(g => {
+        const key = `${g.user_id}-${g.match_id}`;
+        if (!uniqueGuesses.has(key)) {
+          uniqueGuesses.set(key, g);
+        }
+      });
+      const uniqueGuessesArray = Array.from(uniqueGuesses.values());
 
       const todayTime = new Date().setHours(0, 0, 0, 0);
       const rulesToUse = activeLeague || GLOBAL_LEAGUE_RULES;
 
-      allGuesses?.forEach((g: any) => {
+      uniqueGuessesArray.forEach((g: any) => {
         const profile = Array.isArray(g.user_profile) ? g.user_profile[0] : g.user_profile;
         if (profile?.is_test) return;
         const uid = g.user_id;
@@ -125,12 +164,19 @@ export default function RankingPage() {
         let guessColor = 'GRAY'; 
 
         if (mData.h !== null && mData.a !== null) {
-          const calc = calculateGuessPoints(mData.h, mData.a, g.home_guess, g.away_guess, rulesToUse, isPlayoffPhase(mData.phase), mData.hp, mData.ap);
+          const calc = calculateGuessPoints(mData.h, mData.a, g.home_guess, g.away_guess, rulesToUse, isPlayoffPhase(mData.phase), mData.hp, mData.ap, g.penalty_winner_guess);
           guessColor = calc.color;
-          if (activeLeague) pts = calc.pts;
-          else {
-            pts = g.points_awarded || 0;
-            if (isPlayoffPhase(mData.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1) pts *= GLOBAL_LEAGUE_RULES.playoff_multiplier;
+          
+          const basePoints = g.points_awarded || 0;
+          
+          if (activeLeague) {
+            pts = calc.pts;
+          } else {
+            if (isPlayoffPhase(mData.phase) && GLOBAL_LEAGUE_RULES.playoff_multiplier > 1) {
+              pts = basePoints * GLOBAL_LEAGUE_RULES.playoff_multiplier;
+            } else {
+              pts = basePoints;
+            }
           }
         }
 
@@ -166,18 +212,17 @@ export default function RankingPage() {
       setRanking(finalRanking);
       setMatchesForModals(Object.values(matchesWithGuesses));
 
-      // Busca informações do campeão
-      if (currentUserId && activeCompetition?.id) {
+      if (userId && activeCompetition?.id) {
         const championData = await getUserChampionInfo(
           activeCompetition.id,
-          currentUserId,
+          userId,
           activeLeague?.id || null
         );
         setChampionInfo(championData);
       }
 
     } catch (e) { 
-      console.error(e); 
+      console.error('Erro ao buscar ranking:', e); 
     }
     setLoading(false);
   };
@@ -186,7 +231,6 @@ export default function RankingPage() {
     <>
       <div className="flex flex-col h-full max-w-3xl mx-auto px-4 pb-24">
         
-        {/* Cabeçalho Fixo */}
         <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm pt-6 pb-4 space-y-4">
           <div className="flex items-center gap-3">
             <ChartNoAxesCombinedIcon size={28} style={{ color: themeColor || 'var(--color-primary)' }} />
@@ -208,7 +252,6 @@ export default function RankingPage() {
           </div>
         </div>
 
-        {/* Exibição do Campeão */}
         {championInfo.champion && (
           <div className="mb-6">
             <ChampionDisplay
@@ -222,7 +265,6 @@ export default function RankingPage() {
           </div>
         )}
 
-        {/* Conteúdo rolável */}
         <div className="flex-1 overflow-y-auto pt-2">
           {loading ? (
             <div className="flex justify-center py-20"><Loader2 className="animate-spin" size={32} /></div>
@@ -278,7 +320,6 @@ export default function RankingPage() {
         </div>
       </div>
 
-      {/* Modals fora do container principal */}
       <SpyModal 
         isOpen={spyModal.isOpen} 
         onClose={() => setSpyModal({isOpen: false, user: null})} 
