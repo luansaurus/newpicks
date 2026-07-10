@@ -24,6 +24,7 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
   const [editingLeague, setEditingLeague] = useState<any | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Usamos strings para os números para evitar o bug do zero preso no input
   const [formData, setFormData] = useState({
@@ -85,28 +86,90 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
   };
 
   const handleSaveLeague = async () => {
-    const payload = {
-      competition_id: competitionId, owner_id: currentUserId, name: formData.name,
-      is_private: formData.is_private, password: formData.is_private ? formData.password : null,
-      rule_exact_score: formData.enable_exact ? (Number(formData.rule_exact_score) || 0) : 0,
-      rule_goal_diff: formData.enable_diff ? (Number(formData.rule_goal_diff) || 0) : 0,
-      rule_winner: formData.enable_winner ? (Number(formData.rule_winner) || 0) : 0,
-      playoff_multiplier: Number(formData.playoff_multiplier) || 1.0
-    };
-
-    if (editingLeague) {
-      const { data } = await supabase.from('leagues').update(payload).eq('id', editingLeague.id).select().single();
-      if (data && activeLeague?.id === data.id) selectLeague(data);
-    } else {
-      const { data: newLeague } = await supabase.from('leagues').insert([payload]).select().single();
-      if (newLeague) {
-        await supabase.from('league_members').insert([{ league_id: newLeague.id, user_id: currentUserId }]);
-        selectLeague(newLeague);
-      }
+    console.log('🚀 handleSaveLeague chamado!');
+    console.log('📝 formData:', formData);
+    
+    // Validação básica
+    if (!formData.name || formData.name.trim() === '') {
+      alert('Por favor, informe o nome da liga.');
+      return;
     }
-    setIsModalOpen(false);
-    setActiveTab('my');
-    fetchLeagues();
+
+    setIsSaving(true);
+    
+    try {
+      const payload = {
+        competition_id: competitionId, 
+        owner_id: currentUserId, 
+        name: formData.name.trim(),
+        is_private: formData.is_private, 
+        password: formData.is_private ? formData.password : null,
+        rule_exact_score: formData.enable_exact ? (Number(formData.rule_exact_score) || 0) : 0,
+        rule_goal_diff: formData.enable_diff ? (Number(formData.rule_goal_diff) || 0) : 0,
+        rule_winner: formData.enable_winner ? (Number(formData.rule_winner) || 0) : 0,
+        playoff_multiplier: Number(formData.playoff_multiplier) || 1.0
+      };
+
+      console.log('📤 Payload:', payload);
+
+      if (editingLeague) {
+        console.log('✏️ Editando liga:', editingLeague.id);
+        const { data, error } = await supabase
+          .from('leagues')
+          .update(payload)
+          .eq('id', editingLeague.id)
+          .select()
+          .single();
+        
+        if (error) {
+          console.error('❌ Erro ao atualizar:', error);
+          alert('Erro ao atualizar liga: ' + error.message);
+          return;
+        }
+        
+        console.log('✅ Liga atualizada:', data);
+        if (data && activeLeague?.id === data.id) selectLeague(data);
+      } else {
+        console.log('➕ Criando nova liga');
+        const { data: newLeague, error } = await supabase
+          .from('leagues')
+          .insert([payload])
+          .select()
+          .single();
+        
+        if (error) {
+          console.error('❌ Erro ao criar:', error);
+          alert('Erro ao criar liga: ' + error.message);
+          return;
+        }
+        
+        console.log('✅ Liga criada:', newLeague);
+        if (newLeague) {
+          // Adiciona o criador como membro
+          const { error: memberError } = await supabase
+            .from('league_members')
+            .insert([{ league_id: newLeague.id, user_id: currentUserId }]);
+          
+          if (memberError) {
+            console.error('❌ Erro ao adicionar membro:', memberError);
+          } else {
+            console.log('✅ Usuário adicionado como membro');
+          }
+          
+          selectLeague(newLeague);
+        }
+      }
+      
+      setIsModalOpen(false);
+      setActiveTab('my');
+      fetchLeagues();
+      
+    } catch (error) {
+      console.error('❌ Erro inesperado:', error);
+      alert('Ocorreu um erro inesperado. Tente novamente.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDeleteLeague = async () => {
@@ -336,7 +399,23 @@ export function LeagueManager({ competitionId, currentUserId }: LeagueManagerPro
                       setIsModalOpen(false);
                       setShowDeleteConfirm(false);
                     }} className="px-4 py-2 font-bold text-sm text-slate-400 hover:text-white">Cancelar</button>
-                    <button onClick={handleSaveLeague} disabled={!formData.name} className="px-5 py-2 font-bold text-sm bg-primary text-slate-900 rounded-lg hover:brightness-110 flex items-center gap-2" style={{ backgroundColor: themeColor }}><Save size={16} /> Salvar</button>
+                    <button 
+                      onClick={handleSaveLeague} 
+                      disabled={!formData.name || isSaving} 
+                      className="px-5 py-2 font-bold text-sm bg-primary text-slate-900 rounded-lg hover:brightness-110 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                      style={{ backgroundColor: themeColor }}
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          Salvando...
+                        </>
+                      ) : (
+                        <>
+                          <Save size={16} /> Salvar
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               </>
