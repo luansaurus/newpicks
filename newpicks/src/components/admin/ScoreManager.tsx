@@ -159,7 +159,7 @@ export function ScoreManager({ matches, onMatchUpdate }: ScoreManagerProps) {
   const matchesByPhase = useMemo(() => {
     const groups: { [phase: string]: Match[] } = {};
     
-    const phaseOrder = ['groups', 'round_of_32', 'round_of_16', 'quarter', 'semi', 'third', 'final'];
+    const phaseOrder = ['groups', 'round_of_32', 'round_of_16', 'quarter_final', 'semi_final', 'third_place', 'final'];
     
     // Inicializa todas as fases com arrays vazios
     phaseOrder.forEach(phase => {
@@ -343,9 +343,9 @@ export function ScoreManager({ matches, onMatchUpdate }: ScoreManagerProps) {
     'groups': 'Fase de Grupos',
     'round_of_32': '16-Avos de Final',
     'round_of_16': 'Oitavas de Final',
-    'quarter': 'Quartas de Final',
-    'semi': 'Semifinal',
-    'third': 'Disputa de 3º Lugar',
+    'quarter_final': 'Quartas de Final',
+    'semi_final': 'Semifinal',
+    'third_place': 'Disputa de 3º Lugar',
     'final': 'Final'
   };
 
@@ -353,13 +353,13 @@ export function ScoreManager({ matches, onMatchUpdate }: ScoreManagerProps) {
     'groups': '📋',
     'round_of_32': '🏹',
     'round_of_16': '⚔️',
-    'quarter': '🛡️',
-    'semi': '⚽',
-    'third': '🥉',
+    'quarter_final': '🛡️',
+    'semi_final': '⚽',
+    'third_place': '🥉',
     'final': '🏆'
   };
 
-  const phaseOrder = ['groups', 'round_of_32', 'round_of_16', 'quarter', 'semi', 'third', 'final'];
+  const phaseOrder = ['groups', 'round_of_32', 'round_of_16', 'quarter_final', 'semi_final', 'third_place', 'final'];
 
   // Função para renderizar cada card de jogo
   function renderMatchCard(match: Match) {
