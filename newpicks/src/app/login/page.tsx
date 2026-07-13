@@ -95,8 +95,6 @@ function LoginForm() {
           <p className="text-slate-400 text-sm mt-1">Gerencie seus palpites e acompanhe o ranking.</p>
         </header>
 
-        {/* Mensagem de redirecionamento */}
-        {showRedirectMessage && (
           <div className="mb-6 bg-blue-500/10 border border-blue-500/30 p-4 rounded-xl animate-in fade-in slide-in-from-top-4 duration-300">
             <div className="flex items-start gap-3">
               <Info className="text-blue-500 flex-shrink-0 mt-0.5" size={18} />
@@ -112,7 +110,7 @@ function LoginForm() {
               </div>
             </div>
           </div>
-        )}
+        
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div className="space-y-1">
