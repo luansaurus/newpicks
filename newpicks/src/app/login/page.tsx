@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import { useTheme } from '@/context/ThemeContext';
 import { Loader2, Mail, Lock, AlertCircle, Info } from 'lucide-react';
 import Link from 'next/link';
 
-export default function LoginPage() {
+// Componente interno que usa useSearchParams
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { applyTheme } = useTheme();
@@ -95,7 +96,7 @@ export default function LoginPage() {
         </header>
 
         {/* Mensagem de redirecionamento */}
-        
+        {showRedirectMessage && (
           <div className="mb-6 bg-blue-500/10 border border-blue-500/30 p-4 rounded-xl animate-in fade-in slide-in-from-top-4 duration-300">
             <div className="flex items-start gap-3">
               <Info className="text-blue-500 flex-shrink-0 mt-0.5" size={18} />
@@ -104,13 +105,14 @@ export default function LoginPage() {
                   Bem-vindo à nova Arena!
                 </p>
                 <p className="text-blue-300/80 text-xs mt-1">
-                        Se você foi redirecionado da plataforma antiga (worldcupfc.vercel.app),  faça seu login para continuar.
-                <br /> Utilize o mesmo login e senha da plataforma antiga. 
-                <br /> Necessário apenas para o primeiro login.</p>
+                  Se você foi redirecionado da plataforma antiga (worldcupfc.vercel.app), faça seu login para continuar.
+                  <br /> Utilize o mesmo login e senha da plataforma antiga. 
+                  <br /> Necessário apenas para o primeiro login.
+                </p>
               </div>
             </div>
           </div>
-        
+        )}
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div className="space-y-1">
@@ -161,5 +163,18 @@ export default function LoginPage() {
         </form>
       </div>
     </main>
+  );
+}
+
+// Componente principal com Suspense
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="animate-spin text-primary" size={32} />
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }
