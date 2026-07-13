@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Minus, Users, Calendar, Clock, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
+import { X, Minus, Users, Calendar, Clock, ChevronLeft, ChevronRight, CalendarDays, Lock } from 'lucide-react';
 import { isPlayoffPhase } from '@/utils/leagueEngine';
 import { Portal } from '@/components/shared/Portal';
 
@@ -37,6 +37,34 @@ const getTime = (dateString: string | Date) => {
   }
 };
 
+// Função para verificar se o jogo está liberado (faltam 10min ou menos)
+const isMatchUnlocked = (matchTime: string | Date): boolean => {
+  if (!matchTime) return false;
+  try {
+    const matchDate = new Date(matchTime);
+    if (isNaN(matchDate.getTime())) return false;
+    
+    const now = new Date();
+    const timeDiff = matchDate.getTime() - now.getTime();
+    const minutesDiff = timeDiff / (1000 * 60);
+    
+    // Liberado quando faltam 10 minutos ou menos, ou se o jogo já começou
+    return minutesDiff <= 10;
+  } catch {
+    return false;
+  }
+};
+
+// Função para encontrar o próximo jogo não iniciado
+const findNextUnstartedMatch = (matches: any[]): any => {
+  const now = new Date();
+  const futureMatches = matches
+    .filter(m => new Date(m.match_time) > now)
+    .sort((a, b) => new Date(a.match_time).getTime() - new Date(b.match_time).getTime());
+  
+  return futureMatches[0] || null;
+};
+
 export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }: any) {
   const [activeTab, setActiveTab] = useState<'groups' | 'playoffs'>('groups');
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -45,6 +73,26 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const todayStr = getFormattedDate(new Date());
+
+  // Função para determinar a data inicial
+  const getInitialDate = (datesArray: DayGroup[], matches: any[]) => {
+    if (!datesArray.length) return '';
+    
+    // Tenta abrir hoje se tiver jogos
+    const hasToday = datesArray.some(d => d.dateKey === todayStr);
+    if (hasToday) return todayStr;
+    
+    // Se não tiver jogos hoje, tenta o próximo jogo
+    const nextMatch = findNextUnstartedMatch(matches);
+    if (nextMatch) {
+      const nextDateKey = getFormattedDate(nextMatch.match_time);
+      const dateExists = datesArray.some(d => d.dateKey === nextDateKey);
+      if (dateExists) return nextDateKey;
+    }
+    
+    // Fallback: primeiro dia disponível
+    return datesArray[0]?.dateKey || '';
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -86,11 +134,11 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
     if (isOpen && sortedDays.length > 0) {
       const dateExists = sortedDays.some(d => d.dateKey === selectedDate);
       if (!dateExists) {
-        const hasToday = sortedDays.some(d => d.dateKey === todayStr);
-        setSelectedDate(hasToday ? todayStr : sortedDays[0].dateKey);
+        const initialDate = getInitialDate(sortedDays, phaseMatches);
+        setSelectedDate(initialDate);
       }
     }
-  }, [isOpen, activeTab, daysDependency]);
+  }, [isOpen, activeTab, daysDependency, phaseMatches]);
 
   const currentMatches = [...(groupedMatches[selectedDate]?.matches || [])].sort((a, b) => {
     return new Date(a.match_time).getTime() - new Date(b.match_time).getTime();
@@ -99,6 +147,14 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
   const matchesDependency = currentMatches.map(m => m.id).join(',');
   useEffect(() => {
     if (currentMatches.length > 0) {
+      // Tenta selecionar o próximo jogo não iniciado
+      const nextMatch = findNextUnstartedMatch(currentMatches);
+      if (nextMatch) {
+        setSelectedMatchId(nextMatch.id);
+        return;
+      }
+      
+      // Fallback: primeiro jogo da lista
       const matchExists = currentMatches.some(m => m.id === selectedMatchId);
       if (!matchExists) {
         setSelectedMatchId(currentMatches[0].id);
@@ -140,6 +196,12 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
 
   const getWinnerBadge = (guess: any, match: any) => {
     if (!guess) return <Minus size={16} className="text-slate-600" />;
+    
+    // Verifica se o jogo está liberado - REGRA IGUAL PARA TODOS
+    if (!isMatchUnlocked(match?.match_time)) {
+      return <Lock size={16} className="text-yellow-500" />;
+    }
+    
     if (guess.home > guess.away) return <img src={match?.home_team?.logo_url || ''} className="w-6 h-6 sm:w-7 sm:h-7 object-contain inline-block drop-shadow-md" />;
     if (guess.away > guess.home) return <img src={match?.away_team?.logo_url || ''} className="w-6 h-6 sm:w-7 sm:h-7 object-contain inline-block drop-shadow-md" />;
     
@@ -154,6 +216,16 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
       );
     }
     return <div className="text-sm font-black bg-slate-900 px-2 rounded text-yellow-500 border border-slate-700 shadow-sm">X</div>;
+  };
+
+  // Função para verificar se deve mostrar o palpite - REGRA IGUAL PARA TODOS
+  const shouldShowGuess = (match: any): boolean => {
+    return isMatchUnlocked(match?.match_time);
+  };
+
+  // Função para verificar se deve mostrar os pontos - REGRA IGUAL PARA TODOS
+  const shouldShowPoints = (match: any): boolean => {
+    return isMatchUnlocked(match?.match_time) && match?.status === 'FINISHED';
   };
 
   return (
@@ -329,6 +401,7 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
                   {currentMatches.map((m: any) => {
                     const isSelected = selectedMatchId === m.id;
+                    const isUnlocked = isMatchUnlocked(m?.match_time);
                     
                     let hV=0, dV=0, aV=0;
                     usersList.forEach((uid: string) => {
@@ -384,6 +457,11 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
                           <span className="text-slate-500">{dV}</span>
                           <span className="text-amber-500">{aV}</span>
                         </div>
+                        {!isUnlocked && m.status === 'FINISHED' && (
+                          <div className="absolute top-1 right-1">
+                            <Lock size={14} className="text-yellow-500" />
+                          </div>
+                        )}
                       </button>
                     );
                   })}
@@ -432,11 +510,13 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
                       const guess = activeMatch.palpites?.[uid];
                       if (!guess) return null;
                       const fallbackName = rankingUsers?.find((u:any) => u?.id === uid)?.name || 'Membro';
+                      const canSeeGuesses = shouldShowGuess(activeMatch);
+                      const canSeePoints = shouldShowPoints(activeMatch);
 
                       return (
                         <div key={uid} className="bg-card border border-border/80 p-2 sm:p-3 md:p-4 rounded-xl sm:rounded-2xl flex flex-col items-center relative overflow-hidden shadow-sm">
                           <div className="mb-1 sm:mb-2 h-6 sm:h-7 flex items-center justify-center">
-                            {getWinnerBadge(guess, activeMatch)}
+                            {canSeeGuesses ? getWinnerBadge(guess, activeMatch) : <Lock size={20} className="text-yellow-500" />}
                           </div>
 
                           <span className="text-xs sm:text-sm font-bold text-slate-300 truncate w-full text-center pb-1 sm:pb-2">
@@ -445,12 +525,20 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
                           
                           <div className="flex flex-col items-center w-full">
                             <div className="bg-background/80 border border-border/60 w-full py-1.5 sm:py-2 md:py-2.5 rounded-xl flex items-center justify-center gap-1 font-display font-bold text-base sm:text-lg shadow-inner">
-                              <span className="text-white">{guess.home ?? '-'}</span>
-                              <span className="text-slate-600 text-sm sm:text-base">:</span>
-                              <span className="text-white">{guess.away ?? '-'}</span>
+                              {canSeeGuesses ? (
+                                <>
+                                  <span className="text-white">{guess.home ?? '-'}</span>
+                                  <span className="text-slate-600 text-sm sm:text-base">:</span>
+                                  <span className="text-white">{guess.away ?? '-'}</span>
+                                </>
+                              ) : (
+                                <span className="flex items-center gap-2 text-yellow-500">
+                                  <Lock size={16} /> ???
+                                </span>
+                              )}
                             </div>
 
-                            {isPlayoffPhase(activeMatch?.phase) && guess.home === guess.away && guess.penalty_winner && (
+                            {isPlayoffPhase(activeMatch?.phase) && guess.home === guess.away && guess.penalty_winner && canSeeGuesses && (
                               <div className="text-[10px] sm:text-xs text-slate-400 mt-1 sm:mt-1.5 uppercase tracking-widest text-center bg-slate-950 px-2 sm:px-2.5 py-1 rounded-lg border border-slate-800">
                                 Pên: {guess.penalty_winner === 'home' || String(guess.penalty_winner) === String(activeMatch?.home_team?.id) 
                                   ? activeMatch?.home_team?.short_code 
@@ -458,7 +546,7 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
                               </div>
                             )}
 
-                            {activeMatch?.status === 'FINISHED' && (
+                            {canSeePoints && activeMatch?.status === 'FINISHED' ? (
                               <span className={`text-[10px] sm:text-xs font-bold px-2 sm:px-3 py-1 rounded-lg border uppercase tracking-wider mt-1.5 sm:mt-2 w-full text-center ${
                                 guess.color === 'GREEN' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
                                 guess.color === 'BLUE' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
@@ -467,7 +555,11 @@ export function SpyModal({ isOpen, onClose, targetUser, matches, rankingUsers }:
                               }`}>
                                 +{guess.pts || 0} pts
                               </span>
-                            )}
+                            ) : activeMatch?.status === 'FINISHED' && !isMatchUnlocked(activeMatch?.match_time) ? (
+                              <span className="text-[10px] sm:text-xs font-bold px-2 sm:px-3 py-1 rounded-lg border border-yellow-500/30 text-yellow-500 bg-yellow-500/10 uppercase tracking-wider mt-1.5 sm:mt-2 w-full text-center flex items-center justify-center gap-1">
+                                <Lock size={12} /> Aguarde
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                       );

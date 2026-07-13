@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Minus, Calendar, Clock, Users, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
+import { X, Minus, Calendar, Clock, Users, ChevronLeft, ChevronRight, CalendarDays, Lock } from 'lucide-react';
 import { isPlayoffPhase } from '@/utils/leagueEngine';
 import { Portal } from '@/components/shared/Portal';
 
@@ -37,6 +37,34 @@ const getTime = (dateString: string | Date) => {
   }
 };
 
+// Função para verificar se o jogo está liberado (faltam 10min ou menos)
+const isMatchUnlocked = (matchTime: string | Date): boolean => {
+  if (!matchTime) return false;
+  try {
+    const matchDate = new Date(matchTime);
+    if (isNaN(matchDate.getTime())) return false;
+    
+    const now = new Date();
+    const timeDiff = matchDate.getTime() - now.getTime();
+    const minutesDiff = timeDiff / (1000 * 60);
+    
+    // Liberado quando faltam 10 minutos ou menos, ou se o jogo já começou
+    return minutesDiff <= 10;
+  } catch {
+    return false;
+  }
+};
+
+// Função para encontrar o próximo jogo não iniciado
+const findNextUnstartedMatch = (matches: any[]): any => {
+  const now = new Date();
+  const futureMatches = matches
+    .filter(m => new Date(m.match_time) > now)
+    .sort((a, b) => new Date(a.match_time).getTime() - new Date(b.match_time).getTime());
+  
+  return futureMatches[0] || null;
+};
+
 export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }: any) {
   const [activeTab, setActiveTab] = useState<'groups' | 'playoffs'>('groups');
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -44,6 +72,26 @@ export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }:
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const todayStr = getFormattedDate(new Date());
+
+  // Função para determinar a data inicial
+  const getInitialDate = (datesArray: DayGroup[], matches: any[]) => {
+    if (!datesArray.length) return '';
+    
+    // Tenta abrir hoje se tiver jogos
+    const hasToday = datesArray.some(d => d.dateKey === todayStr);
+    if (hasToday) return todayStr;
+    
+    // Se não tiver jogos hoje, tenta o próximo jogo
+    const nextMatch = findNextUnstartedMatch(matches);
+    if (nextMatch) {
+      const nextDateKey = getFormattedDate(nextMatch.match_time);
+      const dateExists = datesArray.some(d => d.dateKey === nextDateKey);
+      if (dateExists) return nextDateKey;
+    }
+    
+    // Fallback: primeiro dia disponível
+    return datesArray[0]?.dateKey || '';
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -84,11 +132,11 @@ export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }:
     if (isOpen && datesArray.length > 0) {
       const dateExists = datesArray.some(d => d.dateKey === selectedDate);
       if (!dateExists) {
-        const hasToday = datesArray.some(d => d.dateKey === todayStr);
-        setSelectedDate(hasToday ? todayStr : datesArray[0].dateKey);
+        const initialDate = getInitialDate(datesArray, phaseMatches);
+        setSelectedDate(initialDate);
       }
     }
-  }, [isOpen, activeTab, daysDependency]);
+  }, [isOpen, activeTab, daysDependency, phaseMatches]);
 
   const currentMatches = [...(groupedByDate[selectedDate]?.matches || [])].sort((a, b) => {
     return new Date(a.match_time).getTime() - new Date(b.match_time).getTime();
@@ -118,8 +166,29 @@ export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }:
 
   if (!isOpen) return null;
 
-  const getWinnerBadge = (guess: any, match: any) => {
+  // Função para verificar se deve mostrar o palpite do oponente (userB)
+  const shouldShowOpponentGuess = (match: any): boolean => {
+    return isMatchUnlocked(match?.match_time);
+  };
+
+  // Função para verificar se deve mostrar os pontos do oponente
+  const shouldShowOpponentPoints = (match: any): boolean => {
+    return isMatchUnlocked(match?.match_time) && match?.status === 'FINISHED';
+  };
+
+  // Função para verificar se deve mostrar os próprios pontos (userA)
+  const shouldShowMyPoints = (match: any): boolean => {
+    return match?.status === 'FINISHED';
+  };
+
+  const getWinnerBadge = (guess: any, match: any, isOpponent: boolean = false) => {
     if (!guess) return <Minus size={24} className="text-slate-600" />;
+    
+    // Se for o oponente, verifica se está liberado
+    if (isOpponent && !isMatchUnlocked(match?.match_time)) {
+      return <Lock size={24} className="text-yellow-500" />;
+    }
+    
     if (guess.home > guess.away) {
       return <img src={match?.home_team?.logo_url || ''} className="w-12 h-12 object-contain inline-block drop-shadow-md" />;
     }
@@ -328,6 +397,10 @@ export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }:
                   const guessB = m?.palpites?.[userB?.id];
                   const isPlayoff = isPlayoffPhase(m?.phase);
                   const hasPenalties = m?.home_penalty !== null && m?.away_penalty !== null && m?.status === 'FINISHED';
+                  const isUnlocked = isMatchUnlocked(m?.match_time);
+                  const canSeeOpponentGuess = shouldShowOpponentGuess(m);
+                  const canSeeOpponentPoints = shouldShowOpponentPoints(m);
+                  const canSeeMyPoints = shouldShowMyPoints(m);
 
                   return (
                     <div key={m.id} className="bg-card border border-border/80 rounded-2xl sm:rounded-3xl p-4 sm:p-5 md:p-6 shadow-xl flex flex-col items-center">
@@ -360,6 +433,11 @@ export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }:
                           <span className="text-sm sm:text-base font-bold uppercase tracking-widest mt-1.5 text-slate-500">
                             {getTime(m.match_time)}
                           </span>
+                          {!isUnlocked && m.status === 'FINISHED' && (
+                            <span className="text-xs text-yellow-500 mt-1 flex items-center gap-1">
+                              <Lock size={12} /> Palpite do oponente bloqueado
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-3 sm:gap-4 w-1/3 justify-start">
@@ -378,18 +456,18 @@ export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }:
                       {/* Palpites lado a lado - GRANDES */}
                       <div className="flex items-start justify-center w-full gap-3 sm:gap-4 md:gap-5">
                         
-                        {/* Palpite User A */}
+                        {/* Palpite User A - SEMPRE VISÍVEL */}
                         <div className="flex flex-col items-center space-y-2 sm:space-y-2.5 flex-1">
                           <span className="text-sm sm:text-base md:text-lg text-primary font-bold uppercase tracking-widest truncate max-w-[70px] sm:max-w-[100px] md:max-w-[120px]">
                             {userA?.name}
                           </span>
                           <div className="h-12 sm:h-14 flex items-center justify-center">
-                            {getWinnerBadge(guessA, m)}
+                            {getWinnerBadge(guessA, m, false)}
                           </div>
                           <div className="bg-slate-950/80 border-2 border-primary/40 w-full py-2 sm:py-2.5 rounded-xl text-xl sm:text-2xl md:text-3xl font-bold font-display text-primary shadow-inner text-center">
                             {guessA ? `${guessA.home}:${guessA.away}` : '-:-'}
                           </div>
-                          {m?.status === 'FINISHED' && guessA ? (
+                          {canSeeMyPoints && guessA ? (
                             <span className={`text-sm sm:text-base px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl font-bold w-full text-center border-2 ${getBadgeClass(guessA.color)}`}>
                               +{guessA.pts || 0} pts
                             </span>
@@ -402,20 +480,26 @@ export function ComparisonModal({ isOpen, onClose, userA, userB, matches = [] }:
                           </span>
                         </div>
 
-                        {/* Palpite User B */}
+                        {/* Palpite User B - BLOQUEADO ATÉ 10 MIN */}
                         <div className="flex flex-col items-center space-y-2 sm:space-y-2.5 flex-1">
                           <span className="text-sm sm:text-base md:text-lg text-amber-500 font-bold uppercase tracking-widest truncate max-w-[70px] sm:max-w-[100px] md:max-w-[120px]">
                             {userB?.name}
                           </span>
                           <div className="h-12 sm:h-14 flex items-center justify-center">
-                            {getWinnerBadge(guessB, m)}
+                            {getWinnerBadge(guessB, m, true)}
                           </div>
                           <div className="bg-slate-950/80 border-2 border-amber-500/40 w-full py-2 sm:py-2.5 rounded-xl text-xl sm:text-2xl md:text-3xl font-bold font-display text-amber-500 shadow-inner text-center">
-                            {guessB ? `${guessB.home}:${guessB.away}` : '-:-'}
+                            {canSeeOpponentGuess && guessB ? `${guessB.home}:${guessB.away}` : 
+                             canSeeOpponentGuess ? '-:-' : 
+                             <span className="flex items-center justify-center gap-2"><Lock size={20} /> ???</span>}
                           </div>
-                          {m?.status === 'FINISHED' && guessB ? (
+                          {canSeeOpponentPoints && guessB ? (
                             <span className={`text-sm sm:text-base px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl font-bold w-full text-center border-2 ${getBadgeClass(guessB.color)}`}>
                               +{guessB.pts || 0} pts
+                            </span>
+                          ) : m?.status === 'FINISHED' && !isUnlocked ? (
+                            <span className="text-sm sm:text-base px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl font-bold w-full text-center border-2 border-yellow-500/30 text-yellow-500 bg-yellow-500/10 flex items-center justify-center gap-1">
+                              <Lock size={16} /> Aguarde
                             </span>
                           ) : <span className="h-[34px] sm:h-[40px]"></span>}
                         </div>
