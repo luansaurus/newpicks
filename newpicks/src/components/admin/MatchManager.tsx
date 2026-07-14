@@ -98,8 +98,8 @@ const BRACKET_MAP: Record<string, { home: string; away: string; phase: string; m
   'W103': { home: 'W101', away: 'W102', phase: 'final', matchId: 126 },
 
   // TERCEIRO LUGAR - Com ID do banco
-  'RU101': { home: 'Perdedor W101', away: '', phase: 'third', matchId: 157 },
-  'RU102': { home: 'Perdedor W102', away: '', phase: 'third', matchId: 157 },
+  'RU101': { home: 'Perdedor W101', away: '', phase: 'third_place', matchId: 157 },
+  'RU102': { home: 'Perdedor W102', away: '', phase: 'third_place', matchId: 157 },
 };
 
 // Nomes das fases em português
@@ -112,7 +112,7 @@ const PHASE_NAMES: Record<string, string> = {
   'third': 'Disputa de 3º Lugar'
 };
 
-const PHASE_ORDER = ['round_of_32', 'round_of_16', 'quarter_final', 'semi_final', 'final', 'third'];
+const PHASE_ORDER = ['round_of_32', 'round_of_16', 'quarter_final', 'semi_final', 'final', 'third_place'];
 
 export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
   const [saving, setSaving] = useState(false);
@@ -312,7 +312,7 @@ export function MatchManager({ matches, onMatchUpdate }: MatchManagerProps) {
 
     try {
       const bracketMatchesList = filteredMatches.filter(m => 
-        m.phase && ['round_of_32', 'round_of_16', 'quarter_final', 'semi_final', 'final', 'third'].includes(m.phase)
+        m.phase && ['round_of_32', 'round_of_16', 'quarter_final', 'semi_final', 'final', 'third_place'].includes(m.phase)
       );
 
       let updatedCount = 0;
