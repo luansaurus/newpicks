@@ -109,7 +109,7 @@ const PHASE_NAMES: Record<string, string> = {
   'quarter_final': 'Quartas de Final',
   'semi_final': 'Semifinal',
   'final': 'Final 🏆',
-  'third': 'Disputa de 3º Lugar'
+  'third_place': 'Disputa de 3º Lugar'
 };
 
 const PHASE_ORDER = ['round_of_32', 'round_of_16', 'quarter_final', 'semi_final', 'final', 'third_place'];
